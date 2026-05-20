@@ -1,0 +1,37 @@
+{
+  "name": "Condominio Bosques del Sur 4",
+  "short_name": "CBS4",
+  "description": "Sistema de gestión para Condominio Bosques del Sur 4",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1E1B6E",
+  "theme_color": "#1E1B6E",
+  "orientation": "portrait-primary",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "url": "/?view=dashboard",
+      "description": "Ver dashboard principal"
+    },
+    {
+      "name": "Vista Transparencia",
+      "url": "/?vista=transparencia",
+      "description": "Vista pública para residentes"
+    }
+  ]
+}
