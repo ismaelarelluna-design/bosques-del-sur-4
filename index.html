@@ -382,7 +382,7 @@ const YEARS = [2018,2019,2020,2021,2022,2023,2024,2025,2026,2027,2028];
 
 let state = {
 loggedIn:false, isTransparencia:false,
-currentView:'dashboard', currentYear:2025, currentMonth:new Date().getMonth(),
+currentView:'dashboard', currentYear:new Date().getFullYear(), currentMonth:new Date().getMonth(),
 theme:'light', connected:false
 };
 
@@ -666,9 +666,27 @@ el.innerHTML='<div style="padding:20px;color:var(--danger)">Error al cargar la v
 setTimeout(drawCharts, 100);
 }
 
+function calcularBalanceGeneral() {
+  let total = 0;
+  for (let anio = 2018; anio <= 2028; anio++) {
+    for (let mes = 0; mes < 12; mes++) {
+      const key = mkKey(anio, mes);
+      const gc = getGC(anio, mes);
+      const pagos = appData.pagos[key] || {};
+      total += Object.values(pagos).filter(Boolean).length * gc;
+      total += (appData.ingresosExtra || []).filter(e => e.anio === anio && e.mes === mes).reduce((s, e) => s + (e.monto || 0), 0);
+      total += (appData.multas || []).filter(m => m.anio === anio && m.mes === mes && m.estado === 'Pagada').reduce((s, m) => s + (m.monto || 0), 0);
+      total -= (appData.gastosFijos[key] || []).reduce((s, g) => s + (g.monto || 0), 0);
+      total -= (appData.gastosVariables || []).filter(v => v.anio === anio && v.mes === mes).reduce((s, v) => s + (v.monto || 0), 0);
+    }
+  }
+  return total;
+}
+
 function vDashboard(){
 const {currentYear,currentMonth}=state;
 const key=mkKey(currentYear,currentMonth);
+const balanceGeneral = calcularBalanceGeneral();
 const gc=getGC(currentYear,currentMonth);
 const pagos=appData.pagos[key]||{};
 const pagados=Object.values(pagos).filter(Boolean).length;
@@ -681,10 +699,13 @@ const tI=pagados*gc+extras+multasPagadas,tE=fijos+vars,bal=tI-tE;
 
 return `<div class="page-title">Dashboard General</div><div class="page-sub">Año ${currentYear} — ${MESES[currentMonth]} | GC: ${fmt(gc)}/depto</div>${monthTabs()}
 <div class="stats-grid">
+<div class="stat-card" style="grid-column: span 2; background: linear-gradient(135deg, ${balanceGeneral>=0?'#4A7C59':'#E05252'}, ${balanceGeneral>=0?'#6BA882':'#C04040'}); color: white; border: none; box-shadow: 0 6px 20px ${balanceGeneral>=0?'rgba(74,124,89,0.3)':'rgba(224,82,82,0.3)'};">
+  <div class="stat-label" style="color: rgba(255,255,255,0.9); letter-spacing: 0.1em;">💰 Balance General Acumulado</div>
+  <div class="stat-value" style="color: white; font-size: 26px;">${fmt(balanceGeneral)}</div>
+</div>
 <div class="stat-card green"><div class="stat-label">Ingresos</div><div class="stat-value small">${fmt(pagados*gc+extras)}</div><div class="stat-meta">GC + Extras</div></div>
-<div class="stat-card orange"><div class="stat-label">Multas Pagadas</div><div class="stat-value small">${fmt(multasPagadas)}</div><div class="stat-meta">${MESES[currentMonth]}</div></div>
 <div class="stat-card red"><div class="stat-label">Egresos</div><div class="stat-value small">${fmt(tE)}</div><div class="stat-meta">Fijos + Variables</div></div>
-<div class="stat-card ${bal>=0?'green':'red'}"><div class="stat-label">Balance</div><div class="stat-value small" style="color:${bal>=0?'var(--green)':'var(--danger)'}">${fmt(bal)}</div></div>
+<div class="stat-card ${bal>=0?'green':'red'}"><div class="stat-label">Balance Mensual</div><div class="stat-value small" style="color:${bal>=0?'var(--green)':'var(--danger)'}">${fmt(bal)}</div></div>
 <div class="stat-card blue"><div class="stat-label">Al Día</div><div class="stat-value">${pagados}<span style="font-size:13px;color:var(--text3)">/${TOTAL_DEPTOS}</span></div></div>
 </div>
 <div class="charts-grid">
@@ -1260,6 +1281,7 @@ function readFileAsBase64(file,cb){ compressImage(file, cb); }
 function vReportes(){
 const {currentYear,currentMonth}=state;
 const key=mkKey(currentYear,currentMonth);
+const balanceGeneral = calcularBalanceGeneral();
 const gc=getGC(currentYear,currentMonth);
 const pagos=appData.pagos[key]||{};
 const pagados=Object.values(pagos).filter(Boolean).length;
@@ -1286,9 +1308,13 @@ html += `<div class="card mb-16 share-box"><div style="font-size:13px;font-weigh
 html += `
 <div class="stats-grid">
 <div class="stat-card green"><div class="stat-label">Dptos Al Día</div><div class="stat-value">${pagados}<span style="font-size:12px;color:var(--text3)">/${TOTAL_DEPTOS}</span></div><div class="stat-meta">${fmt(pagados*gc)}</div></div>
+<div class="stat-card" style="grid-column: span 2; background: linear-gradient(135deg, ${balanceGeneral>=0?'#4A7C59':'#E05252'}, ${balanceGeneral>=0?'#6BA882':'#C04040'}); color: white; border: none; box-shadow: 0 6px 20px ${balanceGeneral>=0?'rgba(74,124,89,0.3)':'rgba(224,82,82,0.3)'};">
+  <div class="stat-label" style="color: rgba(255,255,255,0.9); letter-spacing: 0.1em;">💰 Balance General Acumulado</div>
+  <div class="stat-value" style="color: white; font-size: 26px;">${fmt(balanceGeneral)}</div>
+</div>
 ${!state.isTransparencia ? `<div class="stat-card blue"><div class="stat-label">Ingresos Extra</div><div class="stat-value small">${fmt(extras)}</div></div>` : ''}
 <div class="stat-card red"><div class="stat-label">Egresos</div><div class="stat-value small">${fmt(tE)}</div></div>
-<div class="stat-card ${bal>=0?'green':'red'}"><div class="stat-label">Balance</div><div class="stat-value small" style="color:${bal>=0?'var(--green)':'var(--danger)'}">${fmt(bal)}</div></div>
+<div class="stat-card ${bal>=0?'green':'red'}"><div class="stat-label">Balance Mensual</div><div class="stat-value small" style="color:${bal>=0?'var(--green)':'var(--danger)'}">${fmt(bal)}</div></div>
 </div>
 <div class="charts-grid">
 <div class="card"><div class="card-title">Recaudación ${MESES[currentMonth]}</div><div style="text-align:center;padding:14px 0;"><div class="donut-wrap"><canvas id="ch-rep-dona" width="160" height="160"></canvas><div class="donut-label"><div class="donut-pct">${Math.round(pagados/TOTAL_DEPTOS*100)}%</div><div class="donut-sub">al día</div></div></div><div style="margin-top:12px;font-size:13px;color:var(--text2)">${pagados} de ${TOTAL_DEPTOS} dptos pagaron</div></div></div>
@@ -1578,7 +1604,6 @@ if(fi&&fi.files.length>0){compressImage(fi.files[0],pushEvidencia);}
 else{pushEvidencia(null);}
 }
 
-// ✅ FUNCIÓN EDITAR AGREGADA CORRECTAMENTE
 function editarMulta(id){
   openNuevaMulta(id);
 }
