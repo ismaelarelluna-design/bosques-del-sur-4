@@ -1227,7 +1227,7 @@ g=(appData.gastosVariables||[]).find(x=>x.id==id);
 }
 if(!g||!g.archivo)return;
 const isImg=g.archivo.type&&g.archivo.type.startsWith('image/');
-document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:580px;"><div class="modal-title">📎 ${g.archivo.name}</div>${isImg?`<img src="${g.archivo.data}" style="width:100%;border-radius:8px;margin-bottom:12px"/>`:'<div style="padding:20px;text-align:center;color:var(--text3)">📄 Archivo PDF adjunto</div>'}<div style="display:flex;gap:10px;"><a href="${g.archivo.data}" download="${g.archivo.name}" class="btn btn-primary">⬇ Descargar</a><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div></div></div>`;
+document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:580px;"><div class="modal-title">📎 ${g.archivo.name}</div>${isImg?`<img src="${g.archivo.data}" style="width:100%;border-radius:8px;margin-bottom:12px"/>`:'<div style="padding:20px;text-align:center;color:var(--text3)">📄 Archivo PDF adjunto</div>'}<button class="btn btn-ghost" onclick="closeModal()" style="width:100%;margin-top:8px;">Cerrar</button></div></div>`;
 }
 
 function previewFile(input,prevId){
@@ -1474,11 +1474,13 @@ ${multas.map(m=>{
 const depto=(appData.departamentos||[]).find(d=>d.id===m.unidad_id)||{};
 const recurrente=getRecurrente(m.unidad_id,m.regla,m.fecha_creacion);
 const badgeEstado=m.estado==='Pagada'?'badge-green':(m.estado==='Anulada'?'badge-navy':'badge-red');
+const esAviso = m.tipo_multa === 'aviso';
+const badgeTipo = esAviso ? '<span class="badge" style="background:#FEF4E4;color:#E0A025;">🟡 Aviso</span>' : '<span class="badge" style="background:#FDEAEA;color:#E05252;">🔴 Real</span>';
 return `<tr>
 <td>${m.fecha_creacion}</td>
 <td><strong style="color:var(--navy)">${depto.numero||m.unidad_id}</strong></td>
 <td>${depto.representante||'—'}</td>
-<td><span class="badge badge-orange">${m.regla}</span>${recurrente?' <span title="Reincidente">⚠️</span>':''}</td>
+<td><span class="badge badge-orange">${m.regla}</span>${recurrente?' <span title="Reincidente">⚠️</span>':''} ${badgeTipo}</td>
 <td><strong>${fmt(m.monto)}</strong></td>
 <td><span class="badge ${badgeEstado}">${m.estado}</span></td>
 <td style="white-space:nowrap;">
@@ -1504,6 +1506,11 @@ document.getElementById('modal-area').innerHTML=`
 <div class="modal-overlay open" onclick="if(event.target===this)closeModal()">
 <div class="modal" style="max-width:520px;">
 <div class="modal-title">${title}</div>
+<div class="form-row"><div><label class="fl">Tipo de Multa *</label>
+<select class="fi" id="nm-tipo">
+<option value="real" ${multa&&multa.tipo_multa==='real'?'selected':''}>🔴 Multa Real</option>
+<option value="aviso" ${multa&&multa.tipo_multa==='aviso'?'selected':''}>🟡 Multa de Aviso</option>
+</select></div></div>
 <div class="form-row"><div><label class="fl">Departamento</label>
 <select class="fi" id="nm-depto" onchange="cargarDatosDepto(this.value)">${deptoOptions}<option value="">-- Seleccionar --</option></select></div></div>
 <div class="form-row"><div><label class="fl">Encargado (auto)</label><input class="fi" id="nm-encargado" readonly placeholder="Se completa al seleccionar dpto" value="${multa?multa.encargado:''}"/></div></div>
@@ -1533,6 +1540,7 @@ const unidad_id=parseInt(document.getElementById('nm-depto').value);
 const regla=document.getElementById('nm-regla').value;
 const monto=parseInt(document.getElementById('nm-monto').value)||0;
 const motivo=document.getElementById('nm-motivo').value.trim();
+const tipo_multa=document.getElementById('nm-tipo').value;
 const fecha_creacion=document.querySelector('#nm-motivo').closest('.form-row').previousElementSibling.querySelector('input').value;
 
 if(!unidad_id||!monto||monto<=0||!motivo){showToast('Complete los campos requeridos','error');return;}
@@ -1545,6 +1553,7 @@ encargado:depto?depto.representante:'',
 regla,
 monto,
 motivo,
+tipo_multa,
 fecha_creacion,
 evidencia_url:null,
 estado:'Notificada',
@@ -1575,6 +1584,7 @@ const unidad_id=parseInt(document.getElementById('nm-depto').value);
 const regla=document.getElementById('nm-regla').value;
 const monto=parseInt(document.getElementById('nm-monto').value)||0;
 const motivo=document.getElementById('nm-motivo').value.trim();
+const tipo_multa=document.getElementById('nm-tipo').value;
 const fechaInput=document.querySelector('#nm-motivo').closest('.form-row').previousElementSibling.querySelector('input');
 const fecha_creacion=fechaInput.value;
 
@@ -1589,6 +1599,7 @@ multa.encargado=depto?depto.representante:'';
 multa.regla=regla;
 multa.monto=monto;
 multa.motivo=motivo;
+multa.tipo_multa=tipo_multa;
 multa.fecha_creacion=fecha_creacion;
 
 const fi=document.getElementById('nm-file');
@@ -1623,7 +1634,7 @@ const multa=(appData.multas||[]).find(m=>m.id===id);
 if(!multa)return;
 const depto=(appData.departamentos||[]).find(d=>d.id===multa.unidad_id)||{};
 const fechaStr=new Date(multa.fecha_creacion).toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
-const W=600,H=multa.evidencia_url?980:780;
+const W=600,H=multa.evidencia_url?1000:800;
 const canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;const ctx=canvas.getContext('2d');
 
 ctx.fillStyle='#FFFFFF';ctx.fillRect(0,0,W,H);
@@ -1632,11 +1643,23 @@ ctx.fillStyle=grad;ctx.fillRect(0,0,W,140);
 ctx.fillStyle='#E8E6FF';ctx.beginPath();ctx.arc(W/2,70,40,0,Math.PI*2);ctx.fill();
 ctx.fillStyle='#1E1B6E';ctx.font='bold 14px Nunito, Arial';ctx.textAlign='center';ctx.fillText('CBS4',W/2,75);
 ctx.fillStyle='#FFFFFF';ctx.font='bold 15px Nunito, Arial';ctx.fillText('NOTIFICACIÓN OFICIAL DE MULTA',W/2,125);
-ctx.fillStyle=multa.estado==='Pagada'?'#4A7C59':'#E05252';roundRect(ctx,W/2-50,140,100,32,16);ctx.fill();
-ctx.fillStyle='#FFFFFF';ctx.font='bold 14px Nunito, Arial';ctx.fillText(multa.estado.toUpperCase(),W/2,162);
-ctx.strokeStyle='#E8E8F0';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(40,190);ctx.lineTo(W-40,190);ctx.stroke();
 
-let y=230;
+const esAviso = multa.tipo_multa === 'aviso';
+const colorTipo = esAviso ? '#E0A025' : '#E05252';
+const textoTipo = esAviso ? '🟡 MULTA DE AVISO' : '🔴 MULTA REAL';
+
+// ✅ FRANJA MÁS ANCHA Y ALTA (ancho 500, alto 80)
+ctx.fillStyle=colorTipo;roundRect(ctx,W/2-250,140,500,80,16);ctx.fill();
+// ✅ Texto principal más grande (20px)
+ctx.fillStyle='#FFFFFF';ctx.font='bold 20px Nunito, Arial';ctx.fillText(textoTipo,W/2,172);
+if(esAviso){
+// ✅ Subtítulo más grande (13px)
+ctx.fillStyle='#FFFFFF';ctx.font='bold 13px Nunito, Arial';ctx.fillText('Válido por 7 días, luego pasa a multa real',W/2,198);
+}
+
+ctx.strokeStyle='#E8E8F0';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(40,235);ctx.lineTo(W-40,235);ctx.stroke();
+
+let y=275;
 ctx.fillStyle='#1E1B6E';ctx.font='bold 13px Nunito, Arial';ctx.textAlign='left';ctx.fillText('DEPARTAMENTO',40,y);y+=30;
 ctx.fillStyle='#9090B0';ctx.font='12px Nunito, Arial';ctx.fillText('N° Departamento',40,y);ctx.fillStyle='#141252';ctx.font='bold 14px Nunito, Arial';ctx.textAlign='right';ctx.fillText(depto.numero||multa.unidad_id,W-40,y);y+=35;
 ctx.fillStyle='#9090B0';ctx.font='12px Nunito, Arial';ctx.textAlign='left';ctx.fillText('Encargado',40,y);ctx.fillStyle='#141252';ctx.font='bold 14px Nunito, Arial';ctx.textAlign='right';ctx.fillText(multa.encargado||'—',W-40,y);y+=45;
@@ -1648,7 +1671,7 @@ const motivoLines=(multa.motivo.match(/.{1,60}/g)||[]);motivoLines.forEach(line=
 ctx.fillStyle='#9090B0';ctx.font='12px Nunito, Arial';ctx.textAlign='left';ctx.fillText('Fecha creación',40,y);ctx.fillStyle='#141252';ctx.font='bold 14px Nunito, Arial';ctx.textAlign='right';ctx.fillText(fechaStr,W-40,y);y+=45;
 ctx.strokeStyle='#E8E8F0';ctx.beginPath();ctx.moveTo(40,y);ctx.lineTo(W-40,y);ctx.stroke();y+=25;
 ctx.fillStyle='#1E1B6E';ctx.font='bold 13px Nunito, Arial';ctx.textAlign='left';ctx.fillText('MONTO',40,y);y+=30;
-ctx.fillStyle='#4A7C59';ctx.font='bold 28px Nunito, Arial';ctx.textAlign='right';ctx.fillText(fmt(multa.monto),W-40,y);y+=60;
+ctx.fillStyle=colorTipo;ctx.font='bold 28px Nunito, Arial';ctx.textAlign='right';ctx.fillText(fmt(multa.monto),W-40,y);y+=60;
 
 if(multa.evidencia_url){
 ctx.strokeStyle='#E8E8F0';ctx.beginPath();ctx.moveTo(40,y);ctx.lineTo(W-40,y);ctx.stroke();y+=25;
@@ -1682,13 +1705,31 @@ mostrarVoucherMulta(url,multa,depto);
 }
 
 function mostrarVoucherMulta(imgData,multa,depto){
-document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:560px;"><div class="modal-title">🧾 Voucher de Multa</div><img src="${imgData}" style="width:100%;border-radius:10px;margin-bottom:16px;border:1px solid var(--border);"/><a href="${imgData}" download="Multa_Depto${depto.numero||multa.unidad_id}_${multa.fecha_creacion}.jpg" class="btn btn-danger" style="width:100%;justify-content:center;">⬇ Descargar JPG</a><button class="btn btn-ghost" style="width:100%;margin-top:8px;justify-content:center;" onclick="closeModal()">Cerrar</button></div></div>`;
+document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()">
+<div class="modal" style="max-width:560px;">
+<div class="modal-title">🧾 Voucher de Multa</div>
+<img src="${imgData}" style="width:100%;border-radius:10px;margin-bottom:16px;border:1px solid var(--border);"/>
+<div style="display:flex;gap:8px;flex-wrap:wrap;">
+<a href="${imgData}" download="Multa_Depto${depto.numero||multa.unidad_id}_${multa.fecha_creacion}.jpg" class="btn btn-danger" style="width:100%;justify-content:center;">⬇ Descargar JPG</a>
+<button class="btn btn-ghost" style="width:100%;margin-top:8px;justify-content:center;" onclick="closeModal()">Cerrar</button>
+</div>
+</div>
+</div>`;
 }
 
 function verMulta(id){
 const m=(appData.multas||[]).find(x=>x.id===id);if(!m)return;
 const depto=(appData.departamentos||[]).find(d=>d.id===m.unidad_id)||{};
+const esAviso = m.tipo_multa === 'aviso';
+const textoTipo = esAviso ? '🟡 MULTA DE AVISO' : '🔴 MULTA REAL';
+const colorFondo = esAviso ? '#FEF4E4' : '#FDEAEA';
+const colorTexto = esAviso ? 'var(--warning)' : 'var(--danger)';
+
 document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-title">Detalle de Multa #${m.id}</div>
+<div style="margin-bottom:12px;padding:12px;background:${colorFondo};border-radius:8px;text-align:center;font-weight:700;color:${colorTexto};font-size:14px;">
+${textoTipo}
+${esAviso ? '<div style="font-size:10px;margin-top:4px;font-weight:600;">Válido por 7 días, luego pasa a multa real</div>' : ''}
+</div>
 <div style="font-size:13px;line-height:1.8;">
 <strong>Departamento:</strong> ${depto.numero||m.unidad_id} - ${m.encargado||'—'}<br>
 <strong>Regla:</strong> ${m.regla}<br>
