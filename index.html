@@ -1518,7 +1518,7 @@ document.getElementById('modal-area').innerHTML=`
 <select class="fi" id="nm-regla"><option ${multa&&multa.regla==='Basura'?'selected':''}>Basura</option><option ${multa&&multa.regla==='Ruido'?'selected':''}>Ruido</option><option ${multa&&multa.regla==='Mascotas'?'selected':''}>Mascotas</option><option ${multa&&multa.regla==='Estacionamiento'?'selected':''}>Estacionamiento</option><option ${multa&&multa.regla==='Áreas comunes'?'selected':''}>Áreas comunes</option><option ${multa&&multa.regla==='Otro'?'selected':''}>Otro</option></select></div>
 <div><label class="fl">Monto ($)</label><input class="fi" id="nm-monto" type="number" placeholder="0" value="${multa?multa.monto:''}"/></div></div>
 <div class="form-row"><div><label class="fl">Motivo / Descripción</label><textarea class="fi" id="nm-motivo" rows="2" maxlength="500" placeholder="Descripción breve de la infracción">${multa?multa.motivo:''}</textarea></div></div>
-<div class="form-row"><div><label class="fl">Fecha creación</label><input class="fi" type="date" value="${multa?multa.fecha_creacion:fechaHoy}" ${multa?'':'readonly'}/></div></div>
+<div class="form-row"><div><label class="fl">Fecha creación</label><input class="fi" id="nm-fecha" type="date" value="${multa?multa.fecha_creacion:fechaHoy}"/></div></div>
 <div class="form-row"><label class="fl">Evidencia ${multa&&multa.evidencia_url?'(actual para reemplazar)':'(opcional)'}</label><div class="file-drop" onclick="document.getElementById('nm-file').click()">📎 Adjuntar foto o acta</div><input type="file" id="nm-file" accept="image/*,application/pdf" style="display:none" onchange="previewFile(this,'nm-prev')"/><div id="nm-prev">${multa&&multa.evidencia_url?'<div class="file-preview">📄 <span class="file-name">Evidencia adjunta existente</span></div>':''}</div></div>
 <div style="display:flex;gap:10px;margin-top:10px;">
 <button class="btn btn-danger" onclick="${editId?`actualizarMulta(${editId})`:'crearMulta()'}">${multa?'💾 Actualizar':'✅ Crear y descargar voucher'}</button>
@@ -1541,7 +1541,7 @@ const regla=document.getElementById('nm-regla').value;
 const monto=parseInt(document.getElementById('nm-monto').value)||0;
 const motivo=document.getElementById('nm-motivo').value.trim();
 const tipo_multa=document.getElementById('nm-tipo').value;
-const fecha_creacion=document.querySelector('#nm-motivo').closest('.form-row').previousElementSibling.querySelector('input').value;
+const fecha_creacion=document.getElementById('nm-fecha').value;
 
 if(!unidad_id||!monto||monto<=0||!motivo){showToast('Complete los campos requeridos','error');return;}
 
@@ -1585,8 +1585,7 @@ const regla=document.getElementById('nm-regla').value;
 const monto=parseInt(document.getElementById('nm-monto').value)||0;
 const motivo=document.getElementById('nm-motivo').value.trim();
 const tipo_multa=document.getElementById('nm-tipo').value;
-const fechaInput=document.querySelector('#nm-motivo').closest('.form-row').previousElementSibling.querySelector('input');
-const fecha_creacion=fechaInput.value;
+const fecha_creacion=document.getElementById('nm-fecha').value;
 
 if(!unidad_id||!monto||monto<=0||!motivo){showToast('Complete los campos requeridos','error');return;}
 
@@ -1633,7 +1632,7 @@ function descargarVoucherMulta(id){
 const multa=(appData.multas||[]).find(m=>m.id===id);
 if(!multa)return;
 const depto=(appData.departamentos||[]).find(d=>d.id===multa.unidad_id)||{};
-const fechaStr=new Date(multa.fecha_creacion).toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
+const fechaStr=new Date(multa.fecha_creacion+'T00:00:00').toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
 const W=600,H=multa.evidencia_url?1000:800;
 const canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;const ctx=canvas.getContext('2d');
 
@@ -1648,12 +1647,9 @@ const esAviso = multa.tipo_multa === 'aviso';
 const colorTipo = esAviso ? '#E0A025' : '#E05252';
 const textoTipo = esAviso ? '🟡 MULTA DE AVISO' : '🔴 MULTA REAL';
 
-// ✅ FRANJA MÁS ANCHA Y ALTA (ancho 500, alto 80)
 ctx.fillStyle=colorTipo;roundRect(ctx,W/2-250,140,500,80,16);ctx.fill();
-// ✅ Texto principal más grande (20px)
 ctx.fillStyle='#FFFFFF';ctx.font='bold 20px Nunito, Arial';ctx.fillText(textoTipo,W/2,172);
 if(esAviso){
-// ✅ Subtítulo más grande (13px)
 ctx.fillStyle='#FFFFFF';ctx.font='bold 13px Nunito, Arial';ctx.fillText('Válido por 7 días, luego pasa a multa real',W/2,198);
 }
 
