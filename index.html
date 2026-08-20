@@ -127,7 +127,6 @@ animation:bannerShine 3s infinite;pointer-events:none;}
 @keyframes bannerShine{0%{left:-100%;}100%{left:100%;}}
 .transp-banner a{color:#00F3FF;text-decoration:underline;text-underline-offset:3px;transition:all .2s;text-shadow:0 0 8px rgba(0,243,255,.6);}
 .transp-banner a:hover{text-shadow:0 0 15px rgba(0,243,255,.9),0 0 25px rgba(0,243,255,.5);}
-/* ✅ BANNER DE DATOS BANCARIOS (compacto + neón) */
 .bank-banner{background:var(--glass-bg);border:1px solid rgba(0,243,255,.3);border-radius:10px;padding:10px 14px;
 display:flex;align-items:center;gap:10px;margin-bottom:14px;position:relative;overflow:hidden;
 backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);animation:riseIn .4s ease backwards;
@@ -147,6 +146,36 @@ box-shadow:0 0 8px rgba(0,243,255,.3);border:1px solid rgba(0,243,255,.3);}
 padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;transition:all .2s;flex-shrink:0;
 font-weight:600;}
 .bank-banner-copy:hover{border-color:var(--neon-cyan);color:var(--neon-cyan);box-shadow:var(--glow-cyan);}
+/* ✅ NUEVO: TARJETAS DE ACCESO RÁPIDO (REGLAMENTO + BUZÓN) */
+.info-cards-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+.info-card{background:var(--glass-bg);border:1px solid rgba(0,243,255,.25);border-radius:12px;padding:14px 16px;
+display:flex;align-items:center;gap:12px;position:relative;overflow:hidden;cursor:pointer;
+backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:all .3s ease;
+text-decoration:none;color:inherit;animation:riseIn .4s ease backwards;}
+.info-card:nth-child(2){animation-delay:.08s;}
+.info-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+background:linear-gradient(90deg,transparent,var(--neon-cyan),var(--neon-purple),transparent);opacity:.7;}
+.info-card::after{content:'';position:absolute;inset:8px;pointer-events:none;opacity:.25;transition:opacity .3s;
+background:
+linear-gradient(var(--neon-cyan),var(--neon-cyan)) left top/12px 2px no-repeat,
+linear-gradient(var(--neon-cyan),var(--neon-cyan)) left top/2px 12px no-repeat,
+linear-gradient(var(--neon-cyan),var(--neon-cyan)) right top/12px 2px no-repeat,
+linear-gradient(var(--neon-cyan),var(--neon-cyan)) right top/2px 12px no-repeat,
+linear-gradient(var(--neon-cyan),var(--neon-cyan)) left bottom/12px 2px no-repeat,
+linear-gradient(var(--neon-cyan),var(--neon-cyan)) left bottom/2px 12px no-repeat,
+linear-gradient(var(--neon-cyan),var(--neon-cyan)) right bottom/12px 2px no-repeat,
+linear-gradient(var(--neon-cyan),var(--neon-cyan)) right bottom/2px 12px no-repeat;}
+.info-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,243,255,.25),0 0 30px rgba(176,38,255,.15);
+border-color:var(--neon-cyan);}
+.info-card:hover::after{opacity:.7;}
+.info-card-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+flex-shrink:0;font-size:22px;background:linear-gradient(135deg,var(--navy),#0f172a);
+box-shadow:0 0 10px rgba(0,243,255,.35);border:1px solid rgba(0,243,255,.3);position:relative;z-index:1;}
+.info-card-body{flex:1;min-width:0;position:relative;z-index:1;}
+.info-card-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px;line-height:1.3;}
+.info-card-desc{font-size:11px;color:var(--text3);line-height:1.4;}
+.info-card-arrow{color:var(--neon-cyan);font-size:18px;flex-shrink:0;transition:transform .2s;position:relative;z-index:1;}
+.info-card:hover .info-card-arrow{transform:translateX(4px);text-shadow:0 0 8px var(--neon-cyan);}
 .app-body{display:flex;flex:1;}
 .sidebar{width:200px;min-height:calc(100vh - 56px);background:var(--surface);
 border-right:1px solid var(--border);padding:14px 0;flex-shrink:0;
@@ -388,6 +417,7 @@ transition:all .25s ease;border-left:3px solid transparent;}
 border-radius:9px;font-family:'Nunito',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all .25s;}
 .drawer-logout:hover{border-color:var(--neon-pink);box-shadow:var(--glow-pink);transform:translateY(-1px);}
 @media(max-width:700px){
+.info-cards-grid{grid-template-columns:1fr;}
 .stats-grid{grid-template-columns:1fr 1fr;}
 .charts-grid{grid-template-columns:1fr;}
 .depto-grid{grid-template-columns:repeat(3,1fr);}
@@ -1486,6 +1516,7 @@ reader.readAsDataURL(file);
 
 function readFileAsBase64(file,cb){ compressImage(file, cb); }
 
+/* ✅ NUEVO: vReportes con tarjetas de Reglamento + Buzón */
 function vReportes(){
 const {currentYear,currentMonth}=state;
 const key=mkKey(currentYear,currentMonth);
@@ -1507,6 +1538,24 @@ let html = `
 <button class="btn btn-primary btn-sm" onclick="window.print()"> Exportar PDF</button>
 </div>
 <div class="page-sub">${MESES[currentMonth]} ${currentYear} — Información pública</div>
+<div class="info-cards-grid">
+<a href="https://github.com/ismaelarelluna-design/bosques-del-sur-4/raw/main/Reglamento%20interno%20BSD4.pdf" download="Reglamento_Interno_BSD4.pdf" class="info-card">
+<div class="info-card-icon">📄</div>
+<div class="info-card-body">
+<div class="info-card-title">Descarga el Reglamento Interno + Anexo</div>
+<div class="info-card-desc">Documento oficial del condominio en PDF</div>
+</div>
+<div class="info-card-arrow">→</div>
+</a>
+<a href="https://docs.google.com/forms/d/e/1FAIpQLSeRePmnAuBus-KWRRWEeUmF3Q-uJLRr3c-78kqnmUPlFFAqPg/viewform?pli=1" target="_blank" rel="noopener" class="info-card">
+<div class="info-card-icon">📨</div>
+<div class="info-card-body">
+<div class="info-card-title">Buzón del Residente</div>
+<div class="info-card-desc">Sugerencias, consultas, reclamos y reportes</div>
+</div>
+<div class="info-card-arrow">→</div>
+</a>
+</div>
 <div class="bank-banner">
 <div class="bank-banner-icon">🏦</div>
 <div class="bank-banner-body">
