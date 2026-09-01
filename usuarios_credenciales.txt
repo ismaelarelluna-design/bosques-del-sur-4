@@ -1,0 +1,12 @@
+
+usuario 1 (administrador)
+I.arelluna
+Arelluna_123
+
+usuario 2 (tesorera)
+R.figueroa
+Figueroa_123
+
+usuario 3 (presidenta)
+T.diaz
+Diaz_123
