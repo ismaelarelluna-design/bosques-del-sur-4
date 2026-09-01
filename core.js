@@ -92,7 +92,36 @@ function balanceMes(a,m){const k=mkKey(a,m);const gc=getGC(a,m);const p=appData.
 /* ===== DESCARGA DE IMÁGENES (corrección móvil: Blob + objectURL) ===== */
 function dataUrlToBlob(d){const a=d.split(',');const m=(a[0].match(/:(.*?);/)||[])[1]||'image/jpeg';const b=atob(a[1]);let n=b.length;const u=new Uint8Array(n);while(n--){u[n]=b.charCodeAt(n);}return new Blob([u],{type:m});}
 function dataUrlToFileImg(d,f){const a=d.split(',');const m=(a[0].match(/:(.*?);/)||[])[1]||'image/jpeg';const b=atob(a[1]);let n=b.length;const u=new Uint8Array(n);while(n--){u[n]=b.charCodeAt(n);}return new File([u],f,{type:m});}
-function descargarImagen(url,fname){try{const blob=dataUrlToBlob(url);const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=fname||'imagen.jpg';document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(u),5000);showToast('Descargando imagen...','success');}catch(e){window.open(url,'_blank');}}
+function descargarImagen(url,fname){
+  const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const isStandalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;
+  if(isMobile){
+    try{
+      const blob=dataUrlToBlob(url);
+      const file=new File([blob],fname||'imagen.jpg',{type:blob.type});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){
+        navigator.share({files:[file]}).catch(()=>{});
+        showToast('Elige "Guardar imagen" para guardarla ✓','success');
+        return;
+      }
+    }catch(e){}
+    if(isStandalone){
+      /* window.open no es confiable dentro de una PWA instalada (especialmente iOS) — navegamos directo a la imagen */
+      window.location.href=url;
+      showToast('Mantén presionada la imagen para guardarla','success');
+      return;
+    }
+    const w=window.open();
+    if(w){
+      w.document.write(`<body style="margin:0;background:#111"><img src="${url}" style="width:100%;display:block"></body>`);
+      showToast('Mantén presionada la imagen para guardarla','success');
+    }else{
+      window.location.href=url;
+    }
+    return;
+  }
+  try{const blob=dataUrlToBlob(url);const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=fname||'imagen.jpg';document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(u),5000);showToast('Descargando imagen...','success');}catch(e){window.open(url,'_blank');}
+}
 function descargarUltimo(){if(lastDownload)descargarImagen(lastDownload.url,lastDownload.filename);}
 /* ===== WHATSAPP ===== */
 function abrirWhatsApp(tel,texto){let n=(tel||'').replace(/\D/g,'');if(n&&n.length===9)n='56'+n;const u=n?`https://wa.me/${n}?text=${encodeURIComponent(texto)}`:`https://wa.me/?text=${encodeURIComponent(texto)}`;window.open(u,'_blank');}
