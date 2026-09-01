@@ -94,7 +94,6 @@ function dataUrlToBlob(d){const a=d.split(',');const m=(a[0].match(/:(.*?);/)||[
 function dataUrlToFileImg(d,f){const a=d.split(',');const m=(a[0].match(/:(.*?);/)||[])[1]||'image/jpeg';const b=atob(a[1]);let n=b.length;const u=new Uint8Array(n);while(n--){u[n]=b.charCodeAt(n);}return new File([u],f,{type:m});}
 function descargarImagen(url,fname){
   const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  const isStandalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;
   if(isMobile){
     try{
       const blob=dataUrlToBlob(url);
@@ -105,22 +104,19 @@ function descargarImagen(url,fname){
         return;
       }
     }catch(e){}
-    if(isStandalone){
-      /* window.open no es confiable dentro de una PWA instalada (especialmente iOS) — navegamos directo a la imagen */
-      window.location.href=url;
-      showToast('Mantén presionada la imagen para guardarla','success');
-      return;
-    }
-    const w=window.open();
-    if(w){
-      w.document.write(`<body style="margin:0;background:#111"><img src="${url}" style="width:100%;display:block"></body>`);
-      showToast('Mantén presionada la imagen para guardarla','success');
-    }else{
-      window.location.href=url;
-    }
+    /* Sin share API: mostramos la imagen en una capa DENTRO de la app (sin navegar) para poder mantenerla presionada y guardarla, y cerrar sin perder el contexto de la PWA */
+    mostrarImagenParaGuardar(url);
     return;
   }
   try{const blob=dataUrlToBlob(url);const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=fname||'imagen.jpg';document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(u),5000);showToast('Descargando imagen...','success');}catch(e){window.open(url,'_blank');}
+}
+function mostrarImagenParaGuardar(url){
+  const old=document.getElementById('save-img-overlay');if(old)old.remove();
+  const ov=document.createElement('div');
+  ov.id='save-img-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
+  ov.innerHTML=`<div style="color:#fff;font-size:13px;text-align:center;margin-bottom:14px;">📌 Mantén presionada la imagen y elige "Guardar imagen"</div><img src="${url}" style="max-width:100%;max-height:70vh;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.5);"><button style="margin-top:22px;padding:12px 32px;border-radius:8px;border:none;background:#0E7490;color:#fff;font-weight:600;font-size:14px;" onclick="document.getElementById('save-img-overlay').remove()">Cerrar</button>`;
+  document.body.appendChild(ov);
 }
 function descargarUltimo(){if(lastDownload)descargarImagen(lastDownload.url,lastDownload.filename);}
 /* ===== WHATSAPP ===== */
