@@ -149,6 +149,32 @@ return db.ref('cbs4/gastosFijos').once('value')
 .then(sn=>Object.keys(sn.val()||{}).filter(k=>!/^\d{4}-\d{2}$/.test(k)))
 .catch(()=>[]);
 }
+
+/* Adjuntos que quedaron en cbs4_adjuntos sin que ningun registro los apunte.
+   Se producen si una migracion se interrumpe despues de subir un archivo pero
+   antes de guardar su referencia: al reintentar, ese archivo se sube de nuevo y
+   la copia anterior queda colgando. No hacen dano (no se descargan nunca) pero
+   ocupan espacio, asi que se ofrecen para eliminar junto con la limpieza.
+   Se listan por REST con shallow=true para traer solo los ids, no las imagenes. */
+function adjuntosHuerfanos(){
+const base=(typeof firebaseConfig!=='undefined'&&firebaseConfig.databaseURL)?firebaseConfig.databaseURL.replace(/\/$/,''):null;
+if(!base)return Promise.resolve([]);
+return Promise.all([
+fetch(base+'/'+ADJ_PATH+'.json?shallow=true').then(r=>r.ok?r.json():null).catch(()=>null),
+db.ref('cbs4').once('value').then(sn=>sn.val()).catch(()=>null)
+]).then(([ids,cbs4])=>{
+if(!ids)return [];
+const usados=new Set();
+(function buscar(o){
+if(!o||typeof o!=='object')return;
+Object.keys(o).forEach(k=>{
+if((k==='archivoRef'||k==='evidenciaRef')&&typeof o[k]==='string')usados.add(o[k]);
+else buscar(o[k]);
+});
+})(cbs4||{});
+return Object.keys(ids).filter(id=>!usados.has(id));
+}).catch(()=>[]);
+}
 function fmt(n){return new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0}).format(n);}
 function mkKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
 function showToast(msg,type=''){const t=document.getElementById('toast-el');t.textContent=msg;t.className=`toast ${type}`;setTimeout(()=>t.classList.add('show'),10);setTimeout(()=>t.classList.remove('show'),2800);}

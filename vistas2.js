@@ -214,54 +214,78 @@ if(!p.length){showToast('No hay comprobantes antiguos por mover ✓','success');
 const mb=(pesoAdjuntos()/1048576).toFixed(1);
 document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-title">📦 Mover comprobantes</div><p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:10px;">Se moverán <strong>${p.length} comprobantes</strong> (${mb} MB) fuera de la ficha principal.</p><p style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:12px;">Después de esto, cada celular dejará de descargarlos automáticamente: se bajarán solo al abrirlos. Los comprobantes no se pierden y el proceso se puede repetir si se interrumpe.</p><p style="font-size:12px;color:var(--warning,#B45309);line-height:1.6;margin-bottom:18px;">⏳ No cierres esta pestaña hasta que termine. Puede tardar un par de minutos.</p><div id="mig-prog" style="font-size:12px;color:var(--text3);margin-bottom:14px;"></div><div style="display:flex;gap:10px;"><button class="btn btn-primary" id="mig-btn" onclick="ejecutarMigracionAdjuntos()">Mover ahora</button><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button></div></div></div>`;
 }
+/* Migra UNA rama leyendo y escribiendo directo contra Firebase.
+   NO se apoya en appData: el listener on('value') lo reconstruye entero cada vez
+   que se guarda algo en cbs4, dejando huerfanas las referencias que tuvieramos
+   en memoria (ese fue el bug de la primera version: subia los archivos pero los
+   delete se perdian y la rama se guardaba con la foto todavia dentro).
+   Reanudable: si un registro ya tiene la referencia nueva y ademas el archivo
+   viejo, no lo vuelve a subir; solo elimina la copia antigua. */
+async function migrarRamaAdjuntos(ruta,campoViejo,campoRef,campoNombre){
+let ok=0,err=0,limpiados=0;
+let val=null;
+try{ val=(await db.ref('cbs4/'+ruta).once('value')).val(); }catch(e){ return {ok:0,err:1,limpiados:0}; }
+if(!val) return {ok:0,err:0,limpiados:0};
+const lista=comoLista(val);
+let cambios=false;
+for(const reg of lista){
+if(!reg||typeof reg!=='object'||!reg[campoViejo]) continue;
+try{
+if(reg[campoRef]){                       /* ya estaba subido: solo se limpia */
+delete reg[campoViejo];limpiados++;cambios=true;continue;
+}
+const archivo=reg[campoViejo];
+const ref=await subirAdjunto(archivo);
+reg[campoRef]=ref;
+reg[campoNombre]=archivo.name||'Comprobante';
+delete reg[campoViejo];
+cambios=true;ok++;
+}catch(e){err++;console.error('migrando '+ruta,e);}
+}
+if(cambios){
+try{ await db.ref('cbs4/'+ruta).set(lista); }
+catch(e){ err++; console.error('guardando '+ruta,e); }
+}
+return {ok,err,limpiados};
+}
+
 async function ejecutarMigracionAdjuntos(){
 const btn=document.getElementById('mig-btn');const prog=document.getElementById('mig-prog');
 if(btn){btn.disabled=true;btn.textContent='Moviendo...';}
-const items=adjuntosPendientes();
-/* Se procesa RAMA POR RAMA y se guarda apenas cada rama termina.
-   Asi, si se corta la conexion o se cierra la pestana a mitad de camino,
-   lo ya migrado queda guardado y al repetir solo continua con lo que falta. */
-const grupos={};
-items.forEach(it=>{
-const rama=(it.tipo==='fijo')?('gastosFijos/'+it.key):((it.tipo==='var')?'gastosVariables':'multas');
-(grupos[rama]=grupos[rama]||[]).push(it);
-});
-let ok=0,err=0,hechos=0;
-for(const rama of Object.keys(grupos)){
-let tocado=false;
-for(const it of grupos[rama]){
-hechos++;
-if(prog)prog.textContent=`Moviendo ${hechos} de ${items.length}…`;
+/* Las rutas se piden al servidor, no a appData */
+const rutas=[];
 try{
-const archivo=it.reg.archivo||it.reg.evidencia_url;
-const ref=await subirAdjunto(archivo);          /* 1) sube primero */
-if(it.tipo==='multa'){it.reg.evidenciaRef=ref;it.reg.evidenciaNombre=archivo.name||'Evidencia';delete it.reg.evidencia_url;}
-else{it.reg.archivoRef=ref;it.reg.archivoNombre=archivo.name||'Comprobante';delete it.reg.archivo;}
-tocado=true;ok++;
-}catch(e){err++;console.error('migracion adjunto',e);}
-}
-if(tocado){                                        /* 2) recien ahora limpia la rama */
-try{
-if(rama.indexOf('gastosFijos/')===0)await savePath(rama,comoLista(appData.gastosFijos[rama.slice(12)]));
-else if(rama==='gastosVariables')await savePath('gastosVariables',comoLista(appData.gastosVariables));
-else await savePath('multas',comoLista(appData.multas));
-}catch(e){err++;console.error('guardando rama '+rama,e);}
-}
+const gf=(await db.ref('cbs4/gastosFijos').once('value')).val()||{};
+Object.keys(gf).forEach(k=>rutas.push(['gastosFijos/'+k,'archivo','archivoRef','archivoNombre']));
+}catch(e){}
+rutas.push(['gastosVariables','archivo','archivoRef','archivoNombre']);
+rutas.push(['multas','evidencia_url','evidenciaRef','evidenciaNombre']);
+let ok=0,err=0,limpiados=0;
+for(let i=0;i<rutas.length;i++){
+if(prog)prog.textContent=`Procesando ${i+1} de ${rutas.length} secciones…`;
+const r=await migrarRamaAdjuntos(...rutas[i]);
+ok+=r.ok;err+=r.err;limpiados+=r.limpiados;
 }
 closeModal();renderView();
-showToast(err?`Movidos ${ok}, con ${err} error(es) — puedes repetir el proceso`:`${ok} comprobantes movidos ✓`,err?'error':'success');
+const partes=[];
+if(ok)partes.push(ok+' movidos');
+if(limpiados)partes.push(limpiados+' copias antiguas eliminadas');
+if(!partes.length)partes.push('no habia nada pendiente');
+showToast(err?partes.join(', ')+` — ${err} error(es), puedes repetir`:partes.join(' y ')+' ✓',err?'error':'success');
 }
 /* ===== LIMPIEZA DE RAMAS OBSOLETAS ===== */
 let _limpiezaPlan=null;
 function vLimpiarObsoletos(){
 const ramas=ramasObsoletasPresentes();
-clavesGastosFijosInvalidas().then(claves=>{
-if(!ramas.length&&!claves.length){showToast('No hay datos antiguos que limpiar ✓','success');return;}
-_limpiezaPlan={ramas:ramas.map(r=>r.rama),claves:claves};
+Promise.all([clavesGastosFijosInvalidas(),adjuntosHuerfanos()]).then(([claves,huerfanos])=>{
+if(!ramas.length&&!claves.length&&!huerfanos.length){showToast('No hay datos antiguos que limpiar ✓','success');return;}
+_limpiezaPlan={ramas:ramas.map(r=>r.rama),claves:claves,huerfanos:huerfanos};
 const total=ramas.reduce((s,r)=>s+r.bytes,0);
-const filas=ramas.map(r=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);"><span style="font-family:monospace;color:var(--text2);">cbs4/${r.rama}</span><span style="color:var(--text3);">${(r.bytes/1024).toFixed(1)} KB</span></div>`).join('')
-+ claves.map(k=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);"><span style="font-family:monospace;color:var(--text2);">cbs4/gastosFijos/${k}</span><span style="color:var(--text3);">clave inválida</span></div>`).join('');
-document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-title">🧹 Limpiar datos antiguos</div><p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:12px;">Se eliminarán estas ramas, que quedaron de una versión anterior de la app y que <strong>ningún archivo del código lee</strong>:</p><div style="margin-bottom:14px;">${filas}</div><p style="font-size:13px;color:var(--text2);margin-bottom:10px;">Total a liberar: <strong>${(total/1024).toFixed(1)} KB</strong></p><p style="font-size:12px;color:var(--danger);line-height:1.6;margin-bottom:18px;">⚠️ Esto borra datos y no se puede deshacer desde la app. Asegúrate de tener el respaldo JSON exportado desde Firebase.</p><div style="display:flex;gap:10px;"><button class="btn btn-danger" id="limp-btn" onclick="ejecutarLimpiezaObsoletos()">Sí, eliminar</button><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button></div></div></div>`;
+const fila=(txt,det)=>`<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);"><span style="font-family:monospace;color:var(--text2);word-break:break-all;">${txt}</span><span style="color:var(--text3);white-space:nowrap;">${det}</span></div>`;
+let filas=ramas.map(r=>fila('cbs4/'+r.rama,(r.bytes/1024).toFixed(1)+' KB')).join('')
++ claves.map(k=>fila('cbs4/gastosFijos/'+k,'clave inválida')).join('');
+if(huerfanos.length)filas+=fila('cbs4_adjuntos — '+huerfanos.length+' archivo(s) sueltos','sin usar');
+document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-title">🧹 Limpiar datos antiguos</div><p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:12px;">Se eliminará lo siguiente, que <strong>ningún archivo del código usa</strong>:</p><div style="margin-bottom:14px;max-height:230px;overflow:auto;">${filas}</div>${total?`<p style="font-size:13px;color:var(--text2);margin-bottom:10px;">Ramas antiguas: <strong>${(total/1024).toFixed(1)} KB</strong></p>`:''}${huerfanos.length?`<p style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:10px;">Los archivos sueltos son copias que quedaron de un intento de traslado interrumpido. Ningún comprobante en uso los apunta.</p>`:''}<p style="font-size:12px;color:var(--danger);line-height:1.6;margin-bottom:18px;">⚠️ Esto borra datos y no se puede deshacer desde la app. Asegúrate de tener el respaldo JSON exportado desde Firebase.</p><div style="display:flex;gap:10px;"><button class="btn btn-danger" id="limp-btn" onclick="ejecutarLimpiezaObsoletos()">Sí, eliminar</button><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button></div></div></div>`;
 });
 }
 async function ejecutarLimpiezaObsoletos(){
@@ -275,12 +299,15 @@ try{await db.ref('cbs4/'+r).remove();delete appData[r];ok++;}catch(e){err++;cons
 for(const k of _limpiezaPlan.claves){
 try{await db.ref('cbs4/gastosFijos/'+k).remove();ok++;}catch(e){err++;console.error('limpiando gastosFijos/'+k,e);}
 }
+for(const id of (_limpiezaPlan.huerfanos||[])){
+try{await borrarAdjunto(id);ok++;}catch(e){err++;console.error('limpiando adjunto '+id,e);}
+}
 _limpiezaPlan=null;
 closeModal();renderView();
-showToast(err?`Eliminadas ${ok}, con ${err} error(es)`:`${ok} rama(s) antigua(s) eliminada(s) ✓`,err?'error':'success');
+showToast(err?`Eliminados ${ok}, con ${err} error(es)`:`${ok} elemento(s) antiguo(s) eliminado(s) ✓`,err?'error':'success');
 }
 function vConfig(){const h=appData.gastoComunHistorial||[{desde:'2022-01',valor:DEFAULT_GC}];const so=[...h].sort((a,b)=>b.desde.localeCompare(a.desde));const cg=so[0]?so[0].valor:DEFAULT_GC;
-return `<div class="page-title">Configuración</div><div class="page-sub">Ajustes del sistema</div><div class="card mb-16"><div class="config-section-title">💰 Valor Gasto Común</div><div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;"><div style="flex:1;min-width:180px;"><label class="fl">Nuevo valor ($)</label><input class="fi" id="cfg-gc-val" type="number" value="${cg}"/></div><div style="flex:1;min-width:180px;"><label class="fl">Vigente desde</label><select class="fi" id="cfg-gc-mes">${YEARS.map(y=>MESES.map((m,i)=>`<option value="${mkKey(y,i)}">${m} ${y}</option>`).join('')).join('')}</select></div><button class="btn btn-primary" onclick="saveNuevoGC()">Guardar</button></div><div class="config-section-title" style="margin-top:4px;">Historial de valores</div>${so.map(x=>`<div class="history-item"><span>Desde <strong>${formatPeriodo(x.desde)}</strong></span><span style="font-weight:600;color:var(--green)">${fmt(x.valor)}/depto</span></div>`).join('')}</div><div class="card mb-16"><div class="config-section-title"> Apariencia</div><div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;"><div><div style="font-weight:600;font-size:14px;">Tema oscuro</div><div style="font-size:12px;color:var(--text3)">Modo nocturno</div></div><label class="switch"><input type="checkbox" ${state.theme==='dark'?'checked':''} onchange="toggleTheme()"><span class="slider"></span></label></div></div><div class="card mb-16"><div class="config-section-title">📦 Comprobantes adjuntos</div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:12px;">Los comprobantes nuevos ya se guardan aparte y se descargan solo cuando los abres. Si tienes comprobantes antiguos, muévelos aquí para aligerar la app en todos los dispositivos.</div><div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${(()=>{const n=adjuntosPendientes().length;return n?`⚠️ Hay <strong>${n}</strong> comprobante(s) antiguo(s) dentro de la ficha principal (${(pesoAdjuntos()/1048576).toFixed(1)} MB).`:`✅ Todos los comprobantes están guardados aparte.`;})()}</div><button class="btn btn-primary" onclick="vMigrarAdjuntos()">📦 Revisar y mover comprobantes antiguos</button><div style="height:1px;background:var(--border);margin:16px 0;"></div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:12px;">También quedaron ramas de una versión anterior de la app que nadie usa pero que siguen viajando a cada dispositivo.</div><div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${(()=>{const r=ramasObsoletasPresentes();const t=r.reduce((s,x)=>s+x.bytes,0);return r.length?`⚠️ Hay <strong>${r.length}</strong> rama(s) antigua(s): <span style="font-family:monospace;font-size:11px;">${r.map(x=>x.rama).join(', ')}</span> (${(t/1024).toFixed(1)} KB).`:`✅ No hay ramas antiguas.`;})()}</div><button class="btn btn-danger" onclick="vLimpiarObsoletos()">🧹 Revisar y limpiar datos antiguos</button></div><div class="card"><div class="config-section-title">🔥 Sincronización Firebase</div><div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;"><span class="sync-dot ${state.connected?'':'off'}" style="width:12px;height:12px;flex-shrink:0;"></span><div><div style="font-weight:600;font-size:13px;">${state.connected?'Conectado a Firebase':'Sin conexión'}</div><div style="font-size:11px;color:var(--text3)">Los datos se sincronizan en tiempo real entre todos los dispositivos</div></div></div><p style="font-size:12px;color:var(--text3);">️ Cualquier cambio se refleja automáticamente en los otros administradores conectados.</p></div>`;}
+return `<div class="page-title">Configuración</div><div class="page-sub">Ajustes del sistema</div><div class="card mb-16"><div class="config-section-title">💰 Valor Gasto Común</div><div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;"><div style="flex:1;min-width:180px;"><label class="fl">Nuevo valor ($)</label><input class="fi" id="cfg-gc-val" type="number" value="${cg}"/></div><div style="flex:1;min-width:180px;"><label class="fl">Vigente desde</label><select class="fi" id="cfg-gc-mes">${YEARS.map(y=>MESES.map((m,i)=>`<option value="${mkKey(y,i)}">${m} ${y}</option>`).join('')).join('')}</select></div><button class="btn btn-primary" onclick="saveNuevoGC()">Guardar</button></div><div class="config-section-title" style="margin-top:4px;">Historial de valores</div>${so.map(x=>`<div class="history-item"><span>Desde <strong>${formatPeriodo(x.desde)}</strong></span><span style="font-weight:600;color:var(--green)">${fmt(x.valor)}/depto</span></div>`).join('')}</div><div class="card mb-16"><div class="config-section-title"> Apariencia</div><div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;"><div><div style="font-weight:600;font-size:14px;">Tema oscuro</div><div style="font-size:12px;color:var(--text3)">Modo nocturno</div></div><label class="switch"><input type="checkbox" ${state.theme==='dark'?'checked':''} onchange="toggleTheme()"><span class="slider"></span></label></div></div><div class="card mb-16"><div class="config-section-title">📦 Comprobantes adjuntos</div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:12px;">Los comprobantes nuevos ya se guardan aparte y se descargan solo cuando los abres. Si tienes comprobantes antiguos, muévelos aquí para aligerar la app en todos los dispositivos.</div><div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${(()=>{const n=adjuntosPendientes().length;return n?`⚠️ Hay <strong>${n}</strong> comprobante(s) antiguo(s) dentro de la ficha principal (${(pesoAdjuntos()/1048576).toFixed(1)} MB).`:`✅ Todos los comprobantes están guardados aparte.`;})()}</div><button class="btn btn-primary" onclick="vMigrarAdjuntos()">📦 Revisar y mover comprobantes antiguos</button><div style="height:1px;background:var(--border);margin:16px 0;"></div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:12px;">También quedaron ramas de una versión anterior de la app que nadie usa pero que siguen viajando a cada dispositivo.</div><div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${(()=>{const r=ramasObsoletasPresentes();const t=r.reduce((s,x)=>s+x.bytes,0);return r.length?`⚠️ Hay <strong>${r.length}</strong> rama(s) antigua(s): <span style="font-family:monospace;font-size:11px;">${r.map(x=>x.rama).join(', ')}</span> (${(t/1024).toFixed(1)} KB).`:`✅ No hay ramas antiguas. El botón también revisa si quedaron archivos sueltos.`;})()}</div><button class="btn btn-danger" onclick="vLimpiarObsoletos()">🧹 Revisar y limpiar datos antiguos</button></div><div class="card"><div class="config-section-title">🔥 Sincronización Firebase</div><div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;"><span class="sync-dot ${state.connected?'':'off'}" style="width:12px;height:12px;flex-shrink:0;"></span><div><div style="font-weight:600;font-size:13px;">${state.connected?'Conectado a Firebase':'Sin conexión'}</div><div style="font-size:11px;color:var(--text3)">Los datos se sincronizan en tiempo real entre todos los dispositivos</div></div></div><p style="font-size:12px;color:var(--text3);">️ Cualquier cambio se refleja automáticamente en los otros administradores conectados.</p></div>`;}
 function saveNuevoGC(){const v=parseInt(document.getElementById('cfg-gc-val').value);const d=document.getElementById('cfg-gc-mes').value;if(!v||v<=0){showToast('Ingrese un valor válido','error');return;}if(!appData.gastoComunHistorial)appData.gastoComunHistorial=[];const e=appData.gastoComunHistorial.find(x=>x.desde===d);if(e)e.valor=v;else appData.gastoComunHistorial.push({desde:d,valor:v});savePath('gastoComunHistorial',appData.gastoComunHistorial);showToast(`GC actualizado a ${fmt(v)} desde ${formatPeriodo(d)} ✓`,'success');}
 /* Card reutilizable "Efectivo vs Transferencia" del periodo indicado.
    Usada por vDashboard (ch-tipo-pago) y vReportes (ch-rep-tipo-pago). */
