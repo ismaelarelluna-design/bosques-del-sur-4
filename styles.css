@@ -157,6 +157,7 @@ input.fi:focus,select.fi:focus,textarea.fi:focus{border-color:var(--accent);box-
 .depto-status{font-size:10px;font-weight:600;margin-top:4px;}
 .paid .depto-status{color:var(--green);}
 .depto-cell:not(.paid) .depto-status{color:var(--danger);}
+.depto-tipo{font-size:9px;font-weight:600;color:var(--text3);margin-top:3px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .prog-bar{background:var(--surface2);border-radius:99px;height:10px;overflow:hidden;border:1px solid var(--border);}
 .prog-fill{height:100%;border-radius:99px;transition:width .5s ease;background:linear-gradient(90deg,var(--accent-deep),var(--accent-2));}
 .file-drop{border:2px dashed var(--border);border-radius:10px;padding:16px;text-align:center;cursor:pointer;transition:all .2s ease;color:var(--text3);font-size:12px;background:var(--surface);}

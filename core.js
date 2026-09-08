@@ -11,6 +11,7 @@ appId: "1:201777693828:web:59371297fdcc14ef3daed1"
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 const LOGO_SRC = 'bosques_del_sur_4.png';
+const LOGO_VOUCHER_SRC = 'bosques_del_sur_4_voucher.png';
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const ADMINS = [{u:'I.arelluna',p:'Arelluna_123',rol:'Administrador'},{u:'R.figueroa',p:'Figueroa_123',rol:'Tesorera'},{u:'T.diaz',p:'Diaz_123',rol:'Presidenta'}];
 const DEFAULT_GC = 40000;
@@ -22,11 +23,50 @@ let appData = defaultData();
 let firebaseListener = null;
 let lastVoucher = null;
 let lastDownload = null;
+/* Firebase Realtime Database NO guarda arrays con huecos: si un array queda con
+   indices no consecutivos (por ejemplo tras borrar un elemento del medio), lo
+   devuelve como objeto {"0":..,"2":..}. Toda la app usa filter/map/forEach sobre
+   estas listas, asi que un objeto rompia la vista completa.
+   comoLista() normaliza al recibir: objeto -> array, y descarta huecos nulos. */
+function comoLista(v){
+if(Array.isArray(v))return v.filter(x=>x!==null&&x!==undefined);
+if(v&&typeof v==='object'){
+const ks=Object.keys(v).sort((a,b)=>{const na=Number(a),nb=Number(b);return (isNaN(na)||isNaN(nb))?String(a).localeCompare(String(b)):na-nb;});
+return ks.map(k=>v[k]).filter(x=>x!==null&&x!==undefined);
+}
+return [];
+}
+/* gastosFijos es un objeto de periodos "YYYY-MM"; cada periodo contiene una lista.
+   Se ignoran claves que no sean un periodo valido y elementos que no sean registros:
+   en la base hay restos de pruebas antiguas (por ejemplo una clave "0" cuyo valor
+   es un gasto suelto en vez de una lista). No se borra nada, solo se ignora al leer. */
+function normalizarGastosFijos(v){
+const out={};
+if(v&&typeof v==='object')Object.keys(v).forEach(k=>{
+if(!/^\d{4}-\d{2}$/.test(k))return;
+const l=comoLista(v[k]).filter(g=>g&&typeof g==='object'&&!Array.isArray(g));
+if(l.length)out[k]=l;
+});
+return out;
+}
 function initFirebase(){
 db.ref('.info/connected').on('value', snap => {state.connected = snap.val() === true;const dot=document.getElementById('sync-dot');const txt=document.getElementById('sync-text');if(dot&&txt){dot.className='sync-dot '+(state.connected?'':'off');txt.textContent=state.connected?'En línea':'Sin conexión';}});
 firebaseListener = db.ref('cbs4').on('value', snap => {
 const val = snap.val();
-if(val){appData = {...defaultData(),...val,departamentos:val.departamentos||defaultData().departamentos,gastosFijos:val.gastosFijos||{},gastosVariables:val.gastosVariables||[],ingresosExtra:val.ingresosExtra||[],pagos:val.pagos||{},gastoComunHistorial:val.gastoComunHistorial||[{desde:'2022-01',valor:DEFAULT_GC}],configuracion:val.configuracion||{tema:'light'},formularios:val.formularios||[],multas:val.multas||[]};}
+if(val){
+const deps=comoLista(val.departamentos);
+const hist=comoLista(val.gastoComunHistorial);
+appData = {...defaultData(),...val,
+departamentos: deps.length?deps:defaultData().departamentos,
+gastosFijos: normalizarGastosFijos(val.gastosFijos),
+gastosVariables: comoLista(val.gastosVariables),
+ingresosExtra: comoLista(val.ingresosExtra),
+pagos: val.pagos||{},
+gastoComunHistorial: hist.length?hist:[{desde:'2022-01',valor:DEFAULT_GC}],
+configuracion: val.configuracion||{tema:'light'},
+formularios: comoLista(val.formularios),
+multas: comoLista(val.multas)};
+}
 else {db.ref('cbs4').set(appData);}
 const overlay=document.getElementById('loading-overlay');
 if(overlay && overlay.style.display!=='none'){
@@ -38,12 +78,83 @@ if(appData.configuracion&&appData.configuracion.tema==='dark'){state.theme='dark
 });
 }
 function saveData(){db.ref('cbs4').set(appData).catch(e=>showToast('Error al guardar: '+e.message,'error'));}
+/* Escribe SOLO una rama de cbs4 en lugar de reemplazar el arbol completo.
+   Antes cualquier accion hacia set() sobre 'cbs4' entero: si dos administradores
+   trabajaban a la vez, el ultimo en guardar pisaba los cambios del otro sin aviso.
+   saveData() se conserva para el arranque (initFirebase) y para cambios que
+   afecten a mas de una rama. */
+function savePath(ruta,valor){
+return db.ref('cbs4/'+ruta).set(valor===undefined?null:valor).catch(e=>showToast('Error al guardar: '+e.message,'error'));
+}
+
+/* ===== ADJUNTOS (comprobantes y evidencias) =====
+   Los archivos NO viven dentro de 'cbs4': viven en la rama hermana 'cbs4_adjuntos',
+   que NO esta bajo el listener on('value'). Asi el arbol que baja cada dispositivo
+   en cada cambio deja de arrastrar todas las imagenes (eran ~98% del trafico).
+   En 'cbs4' solo queda una referencia de texto: archivoRef / evidenciaRef (~40 bytes).
+
+   RETROCOMPATIBILIDAD: los registros antiguos guardan el archivo completo en
+   'archivo' / 'evidencia_url'. Se siguen leyendo sin migrar; obtenerAdjuntoDe()
+   resuelve ambos formatos. La migracion es opcional y se lanza desde Configuracion. */
+const ADJ_PATH='cbs4_adjuntos';
+const _adjCache={};
+function nuevoAdjuntoId(){return 'adj_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);}
+/* Sube un archivo {name,type,data} y devuelve su id */
+function subirAdjunto(d){
+const id=nuevoAdjuntoId();
+return db.ref(ADJ_PATH+'/'+id).set(d).then(()=>{_adjCache[id]=d;return id;});
+}
+/* Lo trae solo cuando alguien lo pide; queda cacheado en memoria para esta sesion */
+function cargarAdjunto(id){
+if(!id)return Promise.resolve(null);
+if(_adjCache[id])return Promise.resolve(_adjCache[id]);
+return db.ref(ADJ_PATH+'/'+id).once('value').then(sn=>{const v=sn.val();if(v)_adjCache[id]=v;return v;})
+.catch(e=>{showToast('No se pudo cargar el comprobante: '+e.message,'error');return null;});
+}
+function borrarAdjunto(id){
+if(!id)return Promise.resolve();
+delete _adjCache[id];
+return db.ref(ADJ_PATH+'/'+id).remove().catch(()=>{});
+}
+/* Devuelve el archivo de un registro, venga en formato antiguo o nuevo */
+function obtenerAdjuntoDe(reg,campoViejo,campoRef){
+if(!reg)return Promise.resolve(null);
+if(reg[campoViejo])return Promise.resolve(reg[campoViejo]);
+if(reg[campoRef])return cargarAdjunto(reg[campoRef]);
+return Promise.resolve(null);
+}
+function obtenerAdjunto(reg){return obtenerAdjuntoDe(reg,'archivo','archivoRef');}
+function obtenerEvidencia(mu){return obtenerAdjuntoDe(mu,'evidencia_url','evidenciaRef');}
+function tieneAdjunto(reg){return !!(reg&&(reg.archivo||reg.archivoRef));}
+function tieneEvidencia(mu){return !!(mu&&(mu.evidencia_url||mu.evidenciaRef));}
+function nombreAdjunto(reg){return (reg&&(reg.archivoNombre||(reg.archivo&&reg.archivo.name)))||'Comprobante';}
+
+/* ===== RAMAS OBSOLETAS =====
+   Restos de una version anterior de la app que quedaron dentro de 'cbs4'.
+   Ningun archivo del proyecto las lee (verificado por grep: 0 referencias), pero
+   como el listener on('value') baja el nodo completo, viajan a cada dispositivo
+   en cada cambio. La rama 'variables' llegaba a pesar 2,5 MB por una foto sin
+   comprimir de un registro de prueba.
+   Solo se borran desde Configuracion, con confirmacion explicita. */
+const RAMAS_OBSOLETAS=['variables','deptos','fijos','gcHist','cfg'];
+function ramasObsoletasPresentes(){
+return RAMAS_OBSOLETAS
+.filter(r=>appData[r]!==undefined&&appData[r]!==null)
+.map(r=>{let b=0;try{b=JSON.stringify(appData[r]).length;}catch(e){}return {rama:r,bytes:b};});
+}
+/* Claves de gastosFijos que no son un periodo "YYYY-MM" (basura de pruebas viejas).
+   Se consultan a Firebase porque appData ya viene normalizado sin ellas. */
+function clavesGastosFijosInvalidas(){
+return db.ref('cbs4/gastosFijos').once('value')
+.then(sn=>Object.keys(sn.val()||{}).filter(k=>!/^\d{4}-\d{2}$/.test(k)))
+.catch(()=>[]);
+}
 function fmt(n){return new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0}).format(n);}
 function mkKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
 function showToast(msg,type=''){const t=document.getElementById('toast-el');t.textContent=msg;t.className=`toast ${type}`;setTimeout(()=>t.classList.add('show'),10);setTimeout(()=>t.classList.remove('show'),2800);}
 function closeModal(){document.getElementById('modal-area').innerHTML='';}
 function getGC(anio,mes){const key=mkKey(anio,mes);const hist=(appData.gastoComunHistorial||[{desde:'2022-01',valor:DEFAULT_GC}]).filter(h=>h.desde<=key).sort((a,b)=>b.desde.localeCompare(a.desde));return hist.length>0?hist[0].valor:DEFAULT_GC;}
-function toggleTheme(){state.theme=state.theme==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',state.theme);document.getElementById('theme-btn').textContent=state.theme==='dark'?'☀️':'🌙';if(!appData.configuracion)appData.configuracion={};appData.configuracion.tema=state.theme;saveData();}
+function toggleTheme(){state.theme=state.theme==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',state.theme);document.getElementById('theme-btn').textContent=state.theme==='dark'?'☀️':'🌙';if(!appData.configuracion)appData.configuracion={};appData.configuracion.tema=state.theme;savePath('configuracion',appData.configuracion);}
 function formatPeriodo(key){const [y,m]=key.split('-');return `${MESES[parseInt(m)-1]} ${y}`;}
 const SESSION_KEY='cbs4_session';const SESSION_DAYS=7;
 function saveSession(u){localStorage.setItem(SESSION_KEY,JSON.stringify({usuario:u,ts:Date.now()}));}
@@ -87,8 +198,42 @@ function renderView(){killCharts();const el=document.getElementById('main-conten
 if(v==='dashboard')el.innerHTML=vDashboard();else if(v==='gastoComun')el.innerHTML=vGastoComun();else if(v==='recordatorios')el.innerHTML=vRecordatorios();else if(v==='departamentos')el.innerHTML=vDepartamentos();else if(v==='ingresosExtra')el.innerHTML=vIngresosExtra();else if(v==='egresos')el.innerHTML=vEgresos();else if(v==='reportes')el.innerHTML=vReportes();else if(v==='config')el.innerHTML=vConfig();else if(v==='formularios')el.innerHTML=vFormularios();else if(v==='multas')el.innerHTML=vMultas();else el.innerHTML='<div style="padding:20px;">Vista no encontrada</div>';
 }catch(e){console.error(e);el.innerHTML='<div style="padding:20px;color:var(--danger)">Error al cargar la vista. Recarga la página.</div>';}
 setTimeout(drawCharts,100);setTimeout(animateCounters,60);}
+/* ===== TIPO DE PAGO (efectivo / transferencia) =====
+   Formato historico : appData.pagos[key][deptoId] === true
+                       -> se interpreta como PAGADO + TRANSFERENCIA (valor por defecto).
+   Formato actual    : appData.pagos[key][deptoId] === {pagado:true, tipo:'efectivo'|'transferencia'}
+   No se migran datos historicos: la compatibilidad se resuelve en lectura con normalizarPago().
+   REGLA: ningun modulo debe comparar `=== true` ni usar filter(Boolean) sobre appData.pagos.
+          Todo acceso pasa por normalizarPago / estaPagado / contarPagos / resumenTipoPago. */
+const TIPO_PAGO_DEFAULT='transferencia';
+/* color/colorDark -> relleno de dona y punto de leyenda ; text/textDark -> texto (contraste AA) ; btn -> fondo de boton con texto blanco */
+const TIPOS_PAGO=[
+{id:'efectivo',label:'Efectivo',icon:'💵',color:'#F59E0B',colorDark:'#FBBF24',text:'#B45309',textDark:'#FBBF24',btn:'#B45309'},
+{id:'transferencia',label:'Transferencia',icon:'🏦',color:'#0E7490',colorDark:'#22D3EE',text:'#0E7490',textDark:'#22D3EE',btn:'#0E7490'}];
+function tipoPagoColor(t){const m=tipoPagoMeta(t);return state.theme==='dark'?m.colorDark:m.color;}
+function tipoPagoTextColor(t){const m=tipoPagoMeta(t);return state.theme==='dark'?m.textDark:m.text;}
+function tipoPagoMeta(t){return TIPOS_PAGO.find(x=>x.id===t)||TIPOS_PAGO[1];}
+function normalizarPago(v){
+if(v===true)return{pagado:true,tipo:TIPO_PAGO_DEFAULT};
+if(v&&typeof v==='object'&&v.pagado===true)return{pagado:true,tipo:v.tipo==='efectivo'?'efectivo':TIPO_PAGO_DEFAULT};
+return{pagado:false,tipo:null};
+}
+function estaPagado(v){return normalizarPago(v).pagado;}
+function tipoDePago(v){return normalizarPago(v).tipo;}
+function contarPagos(pm){return Object.values(pm||{}).filter(v=>estaPagado(v)).length;}
+/* Resumen mensual por tipo de pago. El monto se calcula con el GC vigente del periodo,
+   igual que el resto de la app (no se guarda monto por depto). */
+function resumenTipoPago(anio,mes){
+const pm=(appData.pagos||{})[mkKey(anio,mes)]||{};
+const gc=getGC(anio,mes);
+const r={efectivo:{deptos:0,monto:0},transferencia:{deptos:0,monto:0},total:{deptos:0,monto:0}};
+Object.values(pm).forEach(v=>{const p=normalizarPago(v);if(!p.pagado)return;r[p.tipo].deptos++;r[p.tipo].monto+=gc;});
+r.total.deptos=r.efectivo.deptos+r.transferencia.deptos;
+r.total.monto=r.efectivo.monto+r.transferencia.monto;
+return r;
+}
 function calcularBalanceGeneral(){let t=0;for(let a=2018;a<=2028;a++){for(let m=0;m<12;m++){t+=balanceMes(a,m);}}return t;}
-function balanceMes(a,m){const k=mkKey(a,m);const gc=getGC(a,m);const p=appData.pagos[k]||{};const pg=Object.values(p).filter(Boolean).length;const ex=(appData.ingresosExtra||[]).filter(g=>g.anio===a&&g.mes===m).reduce((s,g)=>s+g.monto,0);const mp=(appData.multas||[]).filter(x=>x.anio===a&&x.mes===m&&x.estado==='Pagada').reduce((s,x)=>s+x.monto,0);const fm=(appData.gastosFijos&&appData.gastosFijos[k])?appData.gastosFijos[k]:[];const f=fm.reduce((s,g)=>s+g.monto,0);const va=(appData.gastosVariables||[]).filter(g=>g.anio===a&&g.mes===m).reduce((s,g)=>s+g.monto,0);return (pg*gc+ex+mp)-(f+va);}
+function balanceMes(a,m){const k=mkKey(a,m);const gc=getGC(a,m);const p=appData.pagos[k]||{};const pg=contarPagos(p);const ex=(appData.ingresosExtra||[]).filter(g=>g.anio===a&&g.mes===m).reduce((s,g)=>s+g.monto,0);const mp=(appData.multas||[]).filter(x=>x.anio===a&&x.mes===m&&x.estado==='Pagada').reduce((s,x)=>s+x.monto,0);const fm=(appData.gastosFijos&&appData.gastosFijos[k])?appData.gastosFijos[k]:[];const f=fm.reduce((s,g)=>s+g.monto,0);const va=(appData.gastosVariables||[]).filter(g=>g.anio===a&&g.mes===m).reduce((s,g)=>s+g.monto,0);return (pg*gc+ex+mp)-(f+va);}
 /* ===== DESCARGA DE IMÁGENES (corrección móvil: Blob + objectURL) ===== */
 function dataUrlToBlob(d){const a=d.split(',');const m=(a[0].match(/:(.*?);/)||[])[1]||'image/jpeg';const b=atob(a[1]);let n=b.length;const u=new Uint8Array(n);while(n--){u[n]=b.charCodeAt(n);}return new Blob([u],{type:m});}
 function dataUrlToFileImg(d,f){const a=d.split(',');const m=(a[0].match(/:(.*?);/)||[])[1]||'image/jpeg';const b=atob(a[1]);let n=b.length;const u=new Uint8Array(n);while(n--){u[n]=b.charCodeAt(n);}return new File([u],f,{type:m});}
@@ -123,13 +268,13 @@ function descargarUltimo(){if(lastDownload)descargarImagen(lastDownload.url,last
 function abrirWhatsApp(tel,texto){let n=(tel||'').replace(/\D/g,'');if(n&&n.length===9)n='56'+n;const u=n?`https://wa.me/${n}?text=${encodeURIComponent(texto)}`:`https://wa.me/?text=${encodeURIComponent(texto)}`;window.open(u,'_blank');}
 function compartirPorWhatsApp(img,texto,tel,fname){try{const f=dataUrlToFileImg(img,fname||'Comprobante_CBS4.jpg');if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],text:texto}).catch(()=>{});return;}}catch(e){}descargarImagen(img,fname);abrirWhatsApp(tel,texto);}
 function compartirUltimoVoucher(){if(!lastVoucher)return;const lv=lastVoucher;let t='';let tel=(lv.depto&&lv.depto.contacto)||'';
-if(lv.tipo==='pago'){t=`✅ CONDOMINIO BOSQUES DEL SUR 4\nLe confirmamos la recepción de su pago del Gasto Común de ${lv.mesStr} por ${fmt(lv.gc)}.\n¡Gracias por estar al día! 🙌`;}
+if(lv.tipo==='pago'){t=`✅ CONDOMINIO BOSQUES DEL SUR 4\nLe confirmamos la recepción de su pago del Gasto Común de ${lv.mesStr} por ${fmt(lv.gc)}.\nTipo de pago: ${lv.tipoPagoLabel||'Transferencia'}\n¡Gracias por estar al día! 🙌`;}
 else if(lv.tipo==='multa'){t=`⚖️ CONDOMINIO BOSQUES DEL SUR 4\nNotificación de multa — Depto ${lv.depto.numero||''}\nRegla: ${lv.multa.regla}\nMonto: ${fmt(lv.multa.monto)}\nFecha: ${lv.multa.fecha_creacion}\nPara regularizar transfiera a:\nRomina Gabriela Figueroa Acevedo\nMercado Pago — Cuenta Vista\nN° 1088283442`;}
 else if(lv.tipo==='estado'){t=lv.texto;}
 compartirPorWhatsApp(lv.img,t,tel,'Comprobante_CBS4.jpg');}
 /* ===== MOROSIDAD ===== */
 function clavesVentana(t){const now=new Date();const k=[];if(t==='12'){for(let i=0;i<12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i,1);k.push(mkKey(d.getFullYear(),d.getMonth()));}k.reverse();}else if(t==='anio'){for(let m=0;m<=now.getMonth();m++){k.push(mkKey(now.getFullYear(),m));}}else{for(let y=2018;y<=now.getFullYear();y++){const l=(y===now.getFullYear())?now.getMonth():11;for(let m=0;m<=l;m++){k.push(mkKey(y,m));}}}return k;}
-function calcularMorosidad(){const t=state.ventanaMorosidad||'12';const keys=clavesVentana(t);const out=[];(appData.departamentos||[]).forEach(dep=>{const gcM=[];keys.forEach(k=>{if((appData.pagos[k]||{})[dep.id]!==true){const a=parseInt(k.substring(0,4));const mi=parseInt(k.substring(5,7))-1;gcM.push({key:k,label:formatPeriodo(k),monto:getGC(a,mi)});}});const mul=(appData.multas||[]).filter(m=>{if(m.unidad_id!==dep.id)return false;if(m.estado==='Pagada'||m.estado==='Anulada')return false;const mk=m.anio+'-'+String(m.mes+1).padStart(2,'0');return keys.includes(mk);});const tGC=gcM.reduce((s,g)=>s+g.monto,0);const tM=mul.reduce((s,m)=>s+m.monto,0);const tot=tGC+tM;if(tot>0)out.push({dep,gcMeses:gcM,multas:mul,total:tot});});out.sort((a,b)=>b.total-a.total);return out;}
+function calcularMorosidad(){const t=state.ventanaMorosidad||'12';const keys=clavesVentana(t);const out=[];(appData.departamentos||[]).forEach(dep=>{const gcM=[];keys.forEach(k=>{if(!estaPagado((appData.pagos[k]||{})[dep.id])){const a=parseInt(k.substring(0,4));const mi=parseInt(k.substring(5,7))-1;gcM.push({key:k,label:formatPeriodo(k),monto:getGC(a,mi)});}});const mul=(appData.multas||[]).filter(m=>{if(m.unidad_id!==dep.id)return false;if(m.estado==='Pagada'||m.estado==='Anulada')return false;const mk=m.anio+'-'+String(m.mes+1).padStart(2,'0');return keys.includes(mk);});const tGC=gcM.reduce((s,g)=>s+g.monto,0);const tM=mul.reduce((s,m)=>s+m.monto,0);const tot=tGC+tM;if(tot>0)out.push({dep,gcMeses:gcM,multas:mul,total:tot});});out.sort((a,b)=>b.total-a.total);return out;}
 function textoMoroso(m){let t=`Hola ${m.dep.representante||''} 👋\nCONDOMINIO BOSQUES DEL SUR 4\nLe enviamos su estado de cuenta pendiente:\n`;if(m.gcMeses.length){t+='\nGASTO COMÚN:\n'+m.gcMeses.map(g=>`• ${g.label}: ${fmt(g.monto)}`).join('\n')+'\n';}if(m.multas.length){t+='\nMULTAS:\n'+m.multas.map(x=>`• ${x.fecha_creacion} · ${x.regla}: ${fmt(x.monto)}`).join('\n')+'\n';}t+=`\nTOTAL PENDIENTE: ${fmt(m.total)}\n\nDatos de transferencia:\nRomina Gabriela Figueroa Acevedo\nMercado Pago — Cuenta Vista\nN° 1088283442`;return t;}
 function recordarMorosoWhatsApp(id){const m=calcularMorosidad().find(x=>x.dep.id===id);if(!m)return;abrirWhatsApp(m.dep.contacto||'',textoMoroso(m));}
 function recordarMesActual(id){const {currentYear,currentMonth}=state;const d=(appData.departamentos||[]).find(x=>x.id===id);if(!d)return;const gc=getGC(currentYear,currentMonth);const t=`Hola ${d.representante||''} 👋\nCONDOMINIO BOSQUES DEL SUR 4\nLe recordamos que el Gasto Común de ${MESES[currentMonth]} ${currentYear} (${fmt(gc)}) se encuentra pendiente.\n\nDatos de transferencia:\nRomina Gabriela Figueroa Acevedo\nMercado Pago — Cuenta Vista\nN° 1088283442`;abrirWhatsApp(d.contacto||'',t);}

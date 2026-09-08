@@ -1,23 +1,33 @@
 // Service Worker — Condominio Bosques del Sur 4
-const CACHE_NAME = 'cbs4-v2';
+const CACHE_NAME = 'cbs4-v5';
 const ASSETS = [
   '/',
   '/index.html',
+  '/styles.css',
   '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
+  '/logo-voucher.js',
+  '/core.js',
+  '/vistas.js',
+  '/vistas2.js',
+  '/multas.js',
+  '/bosques_del_sur_4.png',
+  '/icon-192-v2.png',
+  '/icon-512-v2.png',
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
   'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js',
-  'https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js',
-  'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Nunito:wght@300;400;500;600;700&display=swap'
+  'https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js'
 ];
 
 // Instalar y cachear recursos
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(ASSETS).catch(() => {});
-    })
+    // Se cachea recurso por recurso: cache.addAll() es todo-o-nada y un solo
+    // 404 dejaba la app sin precache (y por lo tanto sin modo offline real).
+    caches.open(CACHE_NAME).then(cache =>
+      Promise.allSettled(ASSETS.map(u => cache.add(u).catch(e => {
+        console.warn('[SW] no se pudo cachear:', u); throw e;
+      })))
+    )
   );
   self.skipWaiting();
 });
