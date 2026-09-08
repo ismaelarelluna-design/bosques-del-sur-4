@@ -279,11 +279,20 @@ function saveFijo(key){
   const m=parseInt(document.getElementById('gf-m').value)||0;
   if(!d||m<=0){showToast('Complete los campos','error');return;}
   const f=document.getElementById('gf-file');
-  const p=(a)=>{
+  /* El comprobante va a la rama cbs4_adjuntos; en el gasto solo queda la referencia. */
+  const guardar=(extra)=>{
     if(!appData.gastosFijos)appData.gastosFijos={};
     if(!appData.gastosFijos[key])appData.gastosFijos[key]=[];
-    appData.gastosFijos[key].push({id:Date.now(),descripcion:d,monto:m,archivo:a});
-    savePath('gastosFijos/'+key,appData.gastosFijos[key]);closeModal();renderView();showToast('Gasto fijo agregado ✓','success');
+    appData.gastosFijos[key].push({id:Date.now(),descripcion:d,monto:m,...extra});
+    savePath('gastosFijos/'+key,appData.gastosFijos[key]);
+    closeModal();renderView();showToast('Gasto fijo agregado ✓','success');
+  };
+  const p=(a)=>{
+    if(!a){guardar({});return;}
+    showToast('Subiendo comprobante...','');
+    subirAdjunto(a)
+      .then(ref=>guardar({archivoRef:ref,archivoNombre:a.name||'Comprobante'}))
+      .catch(e=>{showToast('Error al subir el comprobante: '+e.message,'error');guardar({});});
   };
   if(f.files.length>0)compressImage(f.files[0],p);else p(null);
 }
@@ -321,10 +330,19 @@ function saveVariable(a,m){
   const b=document.getElementById('gv-b').value.trim();
   if(!d||m2<=0){showToast('Complete los campos','error');return;}
   const f=document.getElementById('gv-file');
-  const p=(a2)=>{
+  /* El comprobante va a la rama cbs4_adjuntos; en el gasto solo queda la referencia. */
+  const guardar=(extra)=>{
     if(!appData.gastosVariables)appData.gastosVariables=[];
-    appData.gastosVariables.push({id:Date.now(),anio:a,mes:m,descripcion:d,tipoPago:tp,monto:m2,boleta:b,archivo:a2});
-    savePath('gastosVariables',appData.gastosVariables);closeModal();renderView();showToast('Gasto registrado ✓','success');
+    appData.gastosVariables.push({id:Date.now(),anio:a,mes:m,descripcion:d,tipoPago:tp,monto:m2,boleta:b,...extra});
+    savePath('gastosVariables',appData.gastosVariables);
+    closeModal();renderView();showToast('Gasto registrado ✓','success');
+  };
+  const p=(a2)=>{
+    if(!a2){guardar({});return;}
+    showToast('Subiendo comprobante...','');
+    subirAdjunto(a2)
+      .then(ref=>guardar({archivoRef:ref,archivoNombre:a2.name||'Comprobante'}))
+      .catch(e=>{showToast('Error al subir el comprobante: '+e.message,'error');guardar({});});
   };
   if(f.files.length>0)compressImage(f.files[0],p);else p(null);
 }
