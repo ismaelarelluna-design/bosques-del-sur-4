@@ -1,12 +1,131 @@
 /* ===== vistas2.js (PARTE B) ===== */
-function vFormularios(){const s=state.formulariosSortAsc;const so=[...(appData.formularios||[])].sort((a,b)=>s?a.fecha.localeCompare(b.fecha):b.fecha.localeCompare(a.fecha));
-return `<div class="page-title">Formulario de Comprobantes</div><div class="page-sub">Genera comprobantes genéricos descargables en JPG</div><div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;"><button class="btn btn-success" onclick="openNuevoFormulario()">+ Nuevo Comprobante</button><button class="btn btn-ghost btn-sm" onclick="toggleFormulariosSort()">🔄 Ordenar: ${s?'Reciente → Antiguo':'Antiguo → Reciente'}</button></div><div class="card">${so.length===0?`<div style="text-align:center;padding:28px;color:var(--text3)">No hay comprobantes generados</div>`:`<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Actividad</th><th>Monto</th><th>Tipo</th><th style="width:140px;"></th></tr></thead><tbody>${so.map(f=>`<tr><td>${f.fecha}</td><td>${f.actividad}</td><td><strong>${fmt(f.monto)}</strong></td><td><span class="badge badge-navy">${f.tipo}</span></td><td style="white-space:nowrap;"><button class="btn btn-primary btn-sm" onclick="descargarFormulario(${f.id})">⬇</button><button class="btn btn-outline btn-sm" onclick="openNuevoFormulario(${f.id})">✎</button><button class="btn btn-danger btn-sm" onclick="eliminarFormulario(${f.id})">✕</button></td></tr>`).join('')}</tbody></table></div>`}</div>`;}
-function openNuevoFormulario(editId=null){let f=editId?(appData.formularios||[]).find(x=>x.id===editId):null;document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-title">${f?'Editar Comprobante':'Nuevo Comprobante'}</div><div class="form-row"><div><label class="fl">Actividad / Descripción</label><input class="fi" id="fo-act" value="${f?f.actividad:''}"/></div></div><div class="form-row form-row-2"><div><label class="fl">Monto Total ($)</label><input class="fi" id="fo-monto" type="number" placeholder="0" value="${f?f.monto:''}"/></div><div><label class="fl">Tipo de Pago</label><select class="fi" id="fo-tipo"><option ${f&&f.tipo==='Efectivo'?'selected':''}>Efectivo</option><option ${f&&f.tipo==='Transferencia'?'selected':''}>Transferencia</option></select></div></div><div class="form-row"><div><label class="fl">Fecha</label><input class="fi" id="fo-fecha" type="date" value="${f?f.fecha:new Date().toISOString().split('T')[0]}"/></div></div><div class="form-row"><div><label class="fl">Detalle (Opcional)</label><textarea class="fi" id="fo-detalle" rows="3">${f?f.detalle||'':''}</textarea></div></div><div style="display:flex;gap:10px;margin-top:10px;"><button class="btn btn-success" onclick="saveFormulario(${editId||'null'})">Guardar</button><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button></div></div></div>`;}
-function saveFormulario(editId){const a=document.getElementById('fo-act').value.trim();const m=parseInt(document.getElementById('fo-monto').value)||0;const t=document.getElementById('fo-tipo').value;const f=document.getElementById('fo-fecha').value;const d=document.getElementById('fo-detalle').value.trim();if(!a||m<=0||!f){showToast('Complete los campos requeridos','error');return;}if(!appData.formularios)appData.formularios=[];if(editId){const i=appData.formularios.findIndex(x=>x.id===editId);if(i!==-1){appData.formularios[i]={...appData.formularios[i],actividad:a,monto:m,tipo:t,fecha:f,detalle:d};}}else{appData.formularios.push({id:Date.now(),actividad:a,monto:m,tipo:t,fecha:f,detalle:d});}savePath('formularios',appData.formularios);closeModal();renderView();showToast('Guardado ✓','success');}
+/* ===== COMPROBANTES (pestaña Formulario) =====
+   Antes: una tabla sin orden real (el botón llamaba a toggleFormulariosSort(),
+   que nunca existió) y con botones sin nombre.
+   Ahora: buscador, filtro por categoría, orden por fecha o por monto en ambos
+   sentidos, paginación y tarjetas con acciones nombradas. */
+const COMPROBANTES_POR_HOJA=12;
+function estadoComprobantes(){
+if(!state.comprobantes)state.comprobantes={q:'',cat:'',orden:'fecha',asc:false,hoja:1};
+return state.comprobantes;
+}
+function comprobantesFiltrados(){
+const e=estadoComprobantes();
+const q=normalizarTexto(e.q);
+let l=comoLista(appData.formularios).filter(f=>f&&f.id);
+if(q)l=l.filter(f=>normalizarTexto((f.actividad||'')+' '+(f.detalle||'')+' '+(f.tipo||'')).indexOf(q)!==-1);
+if(e.cat)l=l.filter(f=>(f.categoria||SIN_CATEGORIA)===e.cat);
+l.sort((a,b)=>{
+let r;
+if(e.orden==='monto')r=(Number(a.monto)||0)-(Number(b.monto)||0);
+else r=String(a.fecha||'').localeCompare(String(b.fecha||''));
+if(r===0)r=(a.id||0)-(b.id||0);
+return e.asc?r:-r;
+});
+return l;
+}
+function setComprobantes(cambios){Object.assign(estadoComprobantes(),cambios);renderView();}
+function buscarComprobantes(v){const e=estadoComprobantes();e.q=v;e.hoja=1;
+const cont=document.getElementById('comp-lista');if(cont)cont.innerHTML=htmlListaComprobantes();
+const res=document.getElementById('comp-resumen');if(res)res.innerHTML=htmlResumenComprobantes();}
+function ordenComprobantes(campo){const e=estadoComprobantes();
+if(e.orden===campo)e.asc=!e.asc; else {e.orden=campo;e.asc=(campo==='fecha')?false:true;}
+e.hoja=1;renderView();}
+function hojaComprobantes(n){const e=estadoComprobantes();e.hoja=n;
+const cont=document.getElementById('comp-lista');if(cont){cont.innerHTML=htmlListaComprobantes();cont.scrollIntoView({behavior:'smooth',block:'nearest'});}}
+function htmlResumenComprobantes(){
+const l=comprobantesFiltrados();
+const tot=l.reduce((s,f)=>s+(Number(f.monto)||0),0);
+return `${l.length} comprobante(s) · ${fmt(tot)}`;
+}
+function htmlListaComprobantes(){
+const e=estadoComprobantes();
+const l=comprobantesFiltrados();
+if(!l.length)return `<div class="empty-state"><div class="empty-ico">🧾</div><div class="empty-titulo">${e.q||e.cat?'Sin resultados':'Todavía no hay comprobantes'}</div><div class="empty-texto">${e.q||e.cat?'Prueba con otra búsqueda o quita el filtro.':'Crea el primero con el botón de arriba.'}</div></div>`;
+const hojas=Math.max(1,Math.ceil(l.length/COMPROBANTES_POR_HOJA));
+const hoja=Math.min(Math.max(1,e.hoja),hojas);
+const desde=(hoja-1)*COMPROBANTES_POR_HOJA;
+const pag=l.slice(desde,desde+COMPROBANTES_POR_HOJA);
+const e2=e;const fl=(c)=>e2.orden===c?(e2.asc?' ↑':' ↓'):'';
+const filas=pag.map(f=>{
+const cat=f.categoria||SIN_CATEGORIA;
+const badgeCat=cat===SIN_CATEGORIA?`<span class="chip chip-mudo">${esc(cat)}</span>`:`<span class="chip chip-cat">${esc(cat)}</span>`;
+const fe=String(f.fecha||'');
+return `<div class="comp-row">
+  <div class="cr-fecha" data-l="Fecha"><span class="comp-dia">${esc(fe.slice(8,10)||'--')}</span><span class="comp-mes">${esc((MESES[parseInt(fe.slice(5,7))-1]||'').slice(0,3))} ${esc(fe.slice(0,4))}</span></div>
+  <div class="cr-desc" data-l="Descripción"><div class="comp-titulo">${esc(f.actividad||'(sin descripción)')}</div>${f.detalle?`<div class="comp-detalle">${esc(f.detalle)}</div>`:''}</div>
+  <div class="cr-cat" data-l="Categoría">${badgeCat}</div>
+  <div class="cr-tipo" data-l="Pago"><span class="chip chip-pago">${esc(f.tipo||'—')}</span></div>
+  <div class="cr-monto" data-l="Monto">${fmt(f.monto)}</div>
+  <div class="cr-acc">
+    <button class="btn btn-primary btn-sm" title="Descargar JPG" onclick="descargarFormulario(${f.id})">⬇</button>
+    <button class="btn btn-outline btn-sm" title="Editar" onclick="openNuevoFormulario(${f.id})">✎</button>
+    <button class="btn btn-danger btn-sm" title="Eliminar" onclick="eliminarFormulario(${f.id})">🗑</button>
+  </div>
+</div>`;}).join('');
+const cab=`<div class="comp-head"><div class="ch-sort" onclick="ordenComprobantes('fecha')">Fecha${fl('fecha')}</div><div>Descripción</div><div>Categoría</div><div>Pago</div><div class="ch-sort ch-r" onclick="ordenComprobantes('monto')">Monto${fl('monto')}</div><div class="ch-r">Acciones</div></div>`;
+let nav='';
+if(hojas>1){
+const btn=(n,txt,act)=>`<button class="pg-btn ${act?'activa':''}" onclick="hojaComprobantes(${n})">${txt}</button>`;
+let nums='';
+for(let i=1;i<=hojas;i++){
+if(i===1||i===hojas||Math.abs(i-hoja)<=1)nums+=btn(i,i,i===hoja);
+else if(Math.abs(i-hoja)===2)nums+=`<span class="pg-sep">…</span>`;
+}
+nav=`<div class="pg-wrap"><button class="pg-btn" ${hoja===1?'disabled':''} onclick="hojaComprobantes(${hoja-1})">← Anterior</button>${nums}<button class="pg-btn" ${hoja===hojas?'disabled':''} onclick="hojaComprobantes(${hoja+1})">Siguiente →</button><span class="pg-info">Hoja ${hoja} de ${hojas}</span></div>`;
+}
+return `<div class="comp-tabla">${cab}${filas}</div>${nav}`;
+}
+function vFormularios(){
+const e=estadoComprobantes();
+const cats=[SIN_CATEGORIA].concat(CATEGORIAS_GASTO);
+const flecha=(campo)=>e.orden===campo?(e.asc?' ↑':' ↓'):'';
+return `<div class="page-title">Formularios</div><div class="page-sub">Comprobantes de gasto descargables en JPG</div>
+<div class="toolbar">
+  <button class="btn btn-success" onclick="openNuevoFormulario()">+ Nuevo comprobante</button>
+  <div class="toolbar-sep"></div>
+  <div class="buscador"><span class="buscador-ico">🔎</span><input class="fi buscador-input" id="comp-q" placeholder="Buscar por descripción o detalle…" value="${String(e.q||'').replace(/"/g,'&quot;')}" oninput="buscarComprobantes(this.value)"/></div>
+  <select class="fi" style="width:auto;" onchange="setComprobantes({cat:this.value,hoja:1})"><option value="">Todas las categorías</option>${cats.map(c=>`<option value="${c}" ${e.cat===c?'selected':''}>${c}</option>`).join('')}</select>
+  <button class="btn btn-outline btn-sm" onclick="ordenComprobantes('fecha')" title="Ordenar por fecha">📅 Fecha${flecha('fecha')}</button>
+  <button class="btn btn-outline btn-sm" onclick="ordenComprobantes('monto')" title="Ordenar por monto">💲 Monto${flecha('monto')}</button>
+</div>
+<div class="toolbar-resumen" id="comp-resumen">${htmlResumenComprobantes()}</div>
+<div id="comp-lista">${htmlListaComprobantes()}</div>`;
+}
+function openNuevoFormulario(editId=null){
+let f=editId?comoLista(appData.formularios).find(x=>x.id===editId):null;
+const cat=(f&&f.categoria)||'';
+document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-title">${f?'✎ Editar comprobante':'+ Nuevo comprobante'}</div>
+<div class="form-row"><div><label class="fl">Actividad / Descripción</label><input class="fi" id="fo-act" value="${f?String(f.actividad||'').replace(/"/g,'&quot;'):''}"/></div></div>
+<div class="form-row form-row-2"><div><label class="fl">Monto Total ($)</label><input class="fi" id="fo-monto" type="number" placeholder="0" value="${f?f.monto:''}"/></div><div><label class="fl">Tipo de Pago</label><select class="fi" id="fo-tipo"><option ${f&&f.tipo==='Efectivo'?'selected':''}>Efectivo</option><option ${f&&f.tipo==='Transferencia'?'selected':''}>Transferencia</option></select></div></div>
+<div class="form-row form-row-2"><div><label class="fl">Categoría</label><select class="fi" id="fo-cat"><option value="">— sin clasificar —</option>${CATEGORIAS_GASTO.map(c=>`<option value="${c}" ${cat===c?'selected':''}>${c}</option>`).join('')}</select></div><div><label class="fl">Fecha</label><input class="fi" id="fo-fecha" type="date" value="${f?f.fecha:new Date().toISOString().split('T')[0]}"/></div></div>
+<div class="form-row"><div><label class="fl">Detalle (Opcional)</label><textarea class="fi" id="fo-detalle" rows="3">${f?String(f.detalle||''):''}</textarea></div></div>
+<div style="display:flex;gap:10px;margin-top:10px;"><button class="btn btn-success" onclick="saveFormulario(${editId||'null'})">Guardar</button><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button></div></div></div>`;
+}
+function saveFormulario(editId){
+const a=document.getElementById('fo-act').value.trim();
+const m=parseInt(document.getElementById('fo-monto').value)||0;
+const t=document.getElementById('fo-tipo').value;
+const cat=document.getElementById('fo-cat').value;
+const f=document.getElementById('fo-fecha').value;
+const d=document.getElementById('fo-detalle').value.trim();
+if(!a||m<=0||!f){showToast('Complete los campos requeridos','error');return;}
+const lista=comoLista(appData.formularios);
+if(editId){
+const i=lista.findIndex(x=>x.id===editId);
+if(i!==-1)lista[i]={...lista[i],actividad:a,monto:m,tipo:t,categoria:cat,fecha:f,detalle:d};
+}else{
+lista.push({id:Date.now(),actividad:a,monto:m,tipo:t,categoria:cat,fecha:f,detalle:d});
+}
+appData.formularios=lista;
+savePath('formularios',lista);
+closeModal();renderView();showToast('Guardado ✓','success');
+}
 function eliminarFormulario(id){if(!confirm('¿Eliminar este comprobante?'))return;appData.formularios=(appData.formularios||[]).filter(x=>x.id!==id);savePath('formularios',appData.formularios);renderView();showToast('Eliminado');}
 function descargarFormulario(id){const f=(appData.formularios||[]).find(x=>x.id===id);if(!f)return;
 const detLineas=f.detalle?((f.detalle.match(/.{1,60}/g)||[]).length):0;
-const W=600,H=VOUCHER_BANNER_H+(f.detalle?369+detLineas*20:334);const cv=document.createElement('canvas');cv.width=W;cv.height=H;const ctx=cv.getContext('2d');
+const filasExtra=f.categoria?40:0;
+const W=600,H=VOUCHER_BANNER_H+filasExtra+(f.detalle?369+detLineas*20:334);const cv=document.createElement('canvas');cv.width=W;cv.height=H;const ctx=cv.getContext('2d');
 cargarLogoVoucher().then(logo=>{
 ctx.fillStyle='#FFFFFF';ctx.fillRect(0,0,W,H);
 const top=dibujarEncabezado(ctx,W,logo,'Comprobante de Gasto');
@@ -14,7 +133,7 @@ ctx.fillStyle='#10b981';roundRect(ctx,W/2-170,top+22,340,50,25);ctx.fill();
 ctx.fillStyle='#FFFFFF';ctx.font='bold 18px Inter, Arial';ctx.textAlign='center';ctx.fillText('VÁLIDO COMO BOLETA DE GASTO',W/2,top+54);
 let y=top+112;
 const fila=(et,va)=>{ctx.fillStyle='#111827';ctx.font='bold 16px Inter, Arial';ctx.textAlign='left';ctx.fillText(et,40,y);ctx.fillStyle='#4B5563';ctx.font='16px Inter, Arial';ctx.fillText(va,150,y);y+=40;};
-fila('Actividad:',f.actividad);fila('Monto:',fmt(f.monto));fila('Tipo:',f.tipo);fila('Fecha:',f.fecha);
+fila('Actividad:',f.actividad);fila('Monto:',fmt(f.monto));fila('Tipo:',f.tipo);if(f.categoria)fila('Categoría:',f.categoria);fila('Fecha:',f.fecha);
 if(f.detalle){y+=10;ctx.fillStyle='#111827';ctx.font='bold 16px Inter, Arial';ctx.textAlign='left';ctx.fillText('Detalle:',40,y);y+=25;ctx.fillStyle='#4B5563';ctx.font='14px Inter, Arial';(f.detalle.match(/.{1,60}/g)||[]).forEach(l=>{ctx.fillText(l,60,y);y+=20;});}
 ctx.fillStyle='#9CA3AF';ctx.font='11px Inter, Arial';ctx.textAlign='center';ctx.fillText('Condominio Bosques del Sur 4',W/2,H-30);
 ctx.fillStyle=gradienteBanner(ctx,W,8);ctx.fillRect(0,H-8,W,8);
@@ -181,9 +300,9 @@ document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open"
 function vRecordatorios(){const t=state.ventanaMorosidad||'12';const mor=calcularMorosidad();const tot=mor.reduce((s,m)=>s+m.total,0);const lv=t==='12'?'Últimos 12 meses':(t==='anio'?'Año en curso':'Todo el historial');
 const cards=mor.map(m=>{const gr=m.gcMeses.map(g=>`<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:2px 0;"><span>• ${g.label}</span><span>${fmt(g.monto)}</span></div>`).join('');const mr=m.multas.map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:2px 0;"><span>• ${x.fecha_creacion} · ${x.regla}</span><span>${fmt(x.monto)}</span></div>`).join('');
 return `<div class="card" style="margin-bottom:14px;"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;"><div><span style="font-size:16px;font-weight:700;color:var(--text);">Depto ${m.dep.numero}</span> <span style="color:var(--text3);font-size:12px;">${m.dep.representante||''}</span> <span style="color:var(--text3);font-size:11px;">📞 ${m.dep.contacto||'sin contacto'}</span></div><div style="font-size:16px;font-weight:800;color:var(--danger);">Total: ${fmt(m.total)}</div></div>${m.gcMeses.length?`<div style="margin-bottom:8px;"><div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:4px;">Gasto común</div>${gr}</div>`:''}${m.multas.length?`<div style="margin-bottom:8px;"><div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:4px;">Multas</div>${mr}</div>`:''}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;"><button class="btn btn-success btn-sm" onclick="recordarMorosoWhatsApp(${m.dep.id})">💬 Recordar por WhatsApp</button><button class="btn btn-outline btn-sm" onclick="generarEstadoCuenta(${m.dep.id})">📄 Estado de cuenta</button></div></div>`;}).join('');
-return `<div class="page-title">Recordatorios de Morosidad</div><div class="page-sub">Cartera vencida desglosada (gasto común + multas)</div><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><div class="stat-card" style="padding:10px 16px;"><div class="stat-label">Deptos morosos</div><div class="stat-value" style="font-size:20px;">${mor.length}</div></div><div class="stat-card" style="padding:10px 16px;"><div class="stat-label">Total pendiente</div><div class="stat-value" style="font-size:20px;color:var(--danger);">${fmt(tot)}</div></div></div><select class="fi" style="width:auto;" onchange="state.ventanaMorosidad=this.value;renderView()"><option value="12" ${t==='12'?'selected':''}>Últimos 12 meses</option><option value="anio" ${t==='anio'?'selected':''}>Año en curso</option><option value="todo" ${t==='todo'?'selected':''}>Todo el historial</option></select></div><div style="font-size:11px;color:var(--text3);margin-bottom:12px;">Mostrando: ${lv}</div>${mor.length?cards:`<div class="card" style="text-align:center;padding:28px;color:var(--text3);">🎉 No hay morosidad en el período seleccionado</div>`}`;}
+return `<div class="page-title">Morosidad</div><div class="page-sub">Cartera vencida desglosada (gasto común + multas)</div><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><div class="stat-card" style="padding:10px 16px;"><div class="stat-label">Deptos morosos</div><div class="stat-value" style="font-size:20px;">${mor.length}</div></div><div class="stat-card" style="padding:10px 16px;"><div class="stat-label">Total pendiente</div><div class="stat-value" style="font-size:20px;color:var(--danger);">${fmt(tot)}</div></div></div><select class="fi" style="width:auto;" onchange="state.ventanaMorosidad=this.value;renderView()"><option value="12" ${t==='12'?'selected':''}>Últimos 12 meses</option><option value="anio" ${t==='anio'?'selected':''}>Año en curso</option><option value="todo" ${t==='todo'?'selected':''}>Todo el historial</option></select></div><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-bottom:12px;"><span>Mostrando: ${lv}</span><span>${(()=>{const dv=diaVencimiento();const hoy=new Date();const mesActual=MESES[hoy.getMonth()];return mesEnCursoDentroDePlazo(hoy)?`🕐 ${mesActual} está dentro de plazo (hasta el día ${dv}) — todavía no cuenta como morosidad`:`📅 El plazo de ${mesActual} venció el día ${dv}`;})()}</span></div>${mor.length?cards:`<div class="card" style="text-align:center;padding:28px;color:var(--text3);">🎉 No hay morosidad en el período seleccionado</div>`}`;}
 function vReportes(){const {currentYear,currentMonth}=state;const key=mkKey(currentYear,currentMonth);const bg=calcularBalanceGeneral();const gc=getGC(currentYear,currentMonth);const p=appData.pagos[key]||{};const pg=contarPagos(p);const ex=(appData.ingresosExtra||[]).filter(g=>g.anio===currentYear&&g.mes===currentMonth).reduce((s,g)=>s+g.monto,0);const fm=(appData.gastosFijos&&appData.gastosFijos[key])?appData.gastosFijos[key]:[];const f=fm.reduce((s,g)=>s+g.monto,0);const va=(appData.gastosVariables||[]).filter(g=>g.anio===currentYear&&g.mes===currentMonth).reduce((s,g)=>s+g.monto,0);const tI=pg*gc+ex,tE=f+va,bal=tI-tE;
-let h=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap;"><div class="logo-circ" style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid var(--border);"><img src="${document.getElementById('topbar-logo').src}" style="width:100%;height:100%;object-fit:cover;"/></div><div style="flex:1"><div class="page-title" style="margin:0">Reporte Transparencia</div><div style="font-size:12px;color:var(--text3)">Condominio Bosques del Sur 4</div></div><button class="btn btn-primary btn-sm" onclick="window.print()"> Exportar PDF</button></div><div class="page-sub">${MESES[currentMonth]} ${currentYear} — Información pública</div>${monthTabs()}<div class="section-label first">🏠 Zona Residente</div><div class="bank-banner"><div class="bank-banner-icon">🏦</div><div class="bank-banner-body"><div class="bank-banner-title">Datos para transferencia</div><div class="bank-banner-details"><div class="bank-banner-detail"><span class="bank-banner-detail-label">Nombre:</span><strong>Romina Gabriela Figueroa Acevedo</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">RUT:</span><strong>169111200</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">Banco:</span><strong>Mercado Pago</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">Tipo:</span><strong>Cuenta Vista</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">N° Cuenta:</span><strong>1088283442</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">Email:</span><strong>rominaaa2422@gmail.com</strong></div></div></div><button class="bank-banner-copy" onclick="copyBankData()">📋 Copiar</button></div><div class="info-cards-grid"><a href="https://github.com/ismaelarelluna-design/bosques-del-sur-4/raw/main/Reglamento%20interno%20BSD4.pdf" download="Reglamento_Interno_BSD4.pdf" class="info-card"><div class="info-card-icon">📄</div><div class="info-card-body"><div class="info-card-title">Descarga el Reglamento Interno + Anexo</div><div class="info-card-desc">Documento oficial del condominio en PDF</div></div><div class="info-card-arrow">→</div></a><a href="https://docs.google.com/forms/d/e/1FAIpQLSeRePmnAuBus-KWRRWEeUmF3Q-uJLRr3c-78kqnmUPlFFAqPg/viewform?pli=1" target="_blank" rel="noopener" class="info-card"><div class="info-card-icon">📨</div><div class="info-card-body"><div class="info-card-title">Buzón del Residente</div><div class="info-card-desc">Sugerencias, consultas, reclamos y reportes</div></div><div class="info-card-arrow">→</div></a></div><div class="section-label">📊 Resumen Financiero</div><div class="stats-grid"><div class="stat-card hero" style="grid-column: span 2;"><div class="stat-label">💰 Balance General Acumulado</div><div class="stat-value" style="font-size:30px;">${fmt(bg)}</div></div><div class="stat-card"><div class="stat-label"><span class="stat-icon">✅</span>Dptos Al Día</div><div class="stat-value">${pg}<span style="font-size:12px;color:var(--text3)">/${TOTAL_DEPTOS}</span></div><div class="stat-meta">${fmt(pg*gc)}</div></div><div class="stat-card"><div class="stat-label"><span class="stat-icon">📉</span>Egresos</div><div class="stat-value small">${fmt(tE)}</div></div><div class="stat-card"><div class="stat-label"><span class="stat-icon">️</span>Balance Mensual</div><div class="stat-value small" style="color:${bal>=0?'var(--green)':'var(--danger)'}">${fmt(bal)}</div></div></div><div class="section-label">📈 Análisis y Detalle</div><div class="charts-grid"><div class="card"><div class="card-title">Recaudación ${MESES[currentMonth]}</div><div style="text-align:center;padding:14px 0;"><div class="donut-wrap"><canvas id="ch-rep-dona" width="160" height="160"></canvas><div class="donut-label"><div class="donut-pct">${Math.round(pg/TOTAL_DEPTOS*100)}%</div><div class="donut-sub">al día</div></div></div><div style="margin-top:12px;font-size:13px;color:var(--text2)">${pg} de ${TOTAL_DEPTOS} dptos pagaron</div></div></div><div class="card"><div class="card-title">Distribución de Gastos</div><canvas id="ch-rep-bar"></canvas></div></div>${cardTipoPago('ch-rep-tipo-pago',currentYear,currentMonth)}<div class="card mb-16"><div class="card-title">Movimiento de Pagos — Gasto Común ${currentYear}</div><canvas id="ch-gc-pagos" style="max-height:220px;"></canvas></div><div class="card"><div class="card-title">Detalle de Gastos — ${MESES[currentMonth]} ${currentYear}</div><div class="table-wrap"><table><thead><tr><th>Descripción</th><th>Categoría</th><th>Monto</th><th>Comprobante</th></tr></thead><tbody>`;
+let h=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap;"><div class="logo-circ" style="width:46px;height:46px;border-radius:50%;overflow:hidden;border:2px solid var(--border);"><img src="${document.getElementById('topbar-logo').src}" style="width:100%;height:100%;object-fit:cover;"/></div><div style="flex:1"><div class="page-title" style="margin:0">Reporte Transparencia</div><div style="font-size:12px;color:var(--text3)">Condominio Bosques del Sur 4</div></div><button class="btn btn-primary btn-sm" onclick="window.print()"> Exportar PDF</button></div><div class="page-sub">${MESES[currentMonth]} ${currentYear} — Información pública</div>${monthTabs()}<div class="section-label first">🏠 Zona Residente</div><div class="bank-banner"><div class="bank-banner-icon">🏦</div><div class="bank-banner-body"><div class="bank-banner-title">Datos para transferencia</div><div class="bank-banner-details"><div class="bank-banner-detail"><span class="bank-banner-detail-label">Nombre:</span><strong>Romina Gabriela Figueroa Acevedo</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">RUT:</span><strong>169111200</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">Banco:</span><strong>Mercado Pago</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">Tipo:</span><strong>Cuenta Vista</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">N° Cuenta:</span><strong>1088283442</strong></div><div class="bank-banner-detail"><span class="bank-banner-detail-label">Email:</span><strong>rominaaa2422@gmail.com</strong></div></div></div><button class="bank-banner-copy" onclick="copyBankData()">📋 Copiar</button></div><div class="info-cards-grid"><a href="https://github.com/ismaelarelluna-design/bosques-del-sur-4/raw/main/Reglamento%20interno%20BSD4.pdf" download="Reglamento_Interno_BSD4.pdf" class="info-card"><div class="info-card-icon">📄</div><div class="info-card-body"><div class="info-card-title">Descarga el Reglamento Interno + Anexo</div><div class="info-card-desc">Documento oficial del condominio en PDF</div></div><div class="info-card-arrow">→</div></a><a href="https://docs.google.com/forms/d/e/1FAIpQLSeRePmnAuBus-KWRRWEeUmF3Q-uJLRr3c-78kqnmUPlFFAqPg/viewform?pli=1" target="_blank" rel="noopener" class="info-card"><div class="info-card-icon">📨</div><div class="info-card-body"><div class="info-card-title">Buzón del Residente</div><div class="info-card-desc">Sugerencias, consultas, reclamos y reportes</div></div><div class="info-card-arrow">→</div></a></div><div class="section-label">📊 Resumen Financiero</div><div class="stats-grid"><div class="stat-card hero" style="grid-column: span 2;"><div class="stat-label">💰 Balance General Acumulado</div><div class="stat-value" style="font-size:30px;">${fmt(bg)}</div></div><div class="stat-card"><div class="stat-label"><span class="stat-icon">✅</span>Dptos Al Día</div><div class="stat-value">${pg}<span style="font-size:12px;color:var(--text3)">/${TOTAL_DEPTOS}</span></div><div class="stat-meta">${fmt(pg*gc)}</div></div><div class="stat-card"><div class="stat-label"><span class="stat-icon">📉</span>Egresos</div><div class="stat-value small">${fmt(tE)}</div></div><div class="stat-card"><div class="stat-label"><span class="stat-icon">️</span>Balance Mensual</div><div class="stat-value small" style="color:${bal>=0?'var(--green)':'var(--danger)'}">${fmt(bal)}</div></div></div><div class="section-label">📈 Análisis y Detalle</div><div class="charts-grid"><div class="card"><div class="card-title">Recaudación ${MESES[currentMonth]}</div><div style="text-align:center;padding:14px 0;"><div class="donut-wrap"><canvas id="ch-rep-dona" width="160" height="160"></canvas><div class="donut-label"><div class="donut-pct">${Math.round(pg/TOTAL_DEPTOS*100)}%</div><div class="donut-sub">al día</div></div></div><div style="margin-top:12px;font-size:13px;color:var(--text2)">${pg} de ${TOTAL_DEPTOS} dptos pagaron</div></div></div><div class="card"><div class="card-title">Distribución de Gastos</div><canvas id="ch-rep-bar"></canvas></div></div>${cardTipoPago('ch-rep-tipo-pago',currentYear,currentMonth)}<div class="card mb-16"><div class="card-title">Departamentos al día vs. pendientes — ${currentYear}</div><div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Cada barra suma ${TOTAL_DEPTOS} departamentos.</div><canvas id="ch-rep-pagados-mes" style="max-height:250px;"></canvas></div><div class="card mb-16"><div class="card-title">Movimiento de Pagos — Gasto Común ${currentYear}</div><canvas id="ch-gc-pagos" style="max-height:220px;"></canvas></div><div class="card"><div class="card-title">Detalle de Gastos — ${MESES[currentMonth]} ${currentYear}</div><div class="table-wrap"><table><thead><tr><th>Descripción</th><th>Categoría</th><th>Monto</th><th>Comprobante</th></tr></thead><tbody>`;
 fm.forEach(g=>{h+=`<tr><td>${g.descripcion}</td><td><span class="badge badge-navy">Fijo</span></td><td>${fmt(g.monto)}</td><td>${tieneAdjunto(g)?`<button class="btn btn-ghost btn-sm" onclick="verArchivo('fijo',${g.id},'${key}')">📎 Ver boleta</button>`:'<span style="color:var(--text3)">—</span>'}</td></tr>`;});
 (appData.gastosVariables||[]).filter(g=>g.anio===currentYear&&g.mes===currentMonth).forEach(g=>{h+=`<tr><td>${g.descripcion}</td><td><span class="badge badge-orange">Variable</span></td><td>${fmt(g.monto)}</td><td>${tieneAdjunto(g)?`<button class="btn btn-ghost btn-sm" onclick="verArchivo('var',${g.id})">📎 Ver boleta</button>`:'<span style="color:var(--text3)">—</span>'}</td></tr>`;});
 h+=`</tbody></table></div></div>`;return h;}
@@ -306,8 +425,78 @@ _limpiezaPlan=null;
 closeModal();renderView();
 showToast(err?`Eliminados ${ok}, con ${err} error(es)`:`${ok} elemento(s) antiguo(s) eliminado(s) ✓`,err?'error':'success');
 }
+function quitarConceptoGasto(label){
+if(!confirm('¿Quitar "'+label+'" de la lista?\n\nLos gastos ya registrados con ese nombre no se tocan.'))return;
+eliminarConcepto(label).then(()=>{renderView();showToast('Quitado de la lista','');});
+}
+/* ===== CLASIFICAR GASTOS ANTIGUOS =====
+   Los gastos cargados antes de que existieran las categorias quedan como
+   'Sin clasificar' y el presupuesto no puede sumarlos. Esta pantalla los agrupa
+   por descripcion y permite asignarles categoria de a montones.
+   Escribe leyendo desde Firebase, NO desde appData: el listener reconstruye
+   appData en cada guardado y dejaria huerfanas las referencias en memoria. */
+function vClasificarGastos(){
+const grupos=gruposSinClasificar();
+if(!grupos.length){showToast('No quedan gastos sin clasificar ✓','success');return;}
+const totalN=grupos.reduce((a,g)=>a+g.n,0);
+const totalM=grupos.reduce((a,g)=>a+g.monto,0);
+const conSug=grupos.filter(g=>g.sugerida).length;
+const filas=grupos.map((g,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+<div style="flex:1;min-width:150px;"><div style="font-size:13px;color:var(--text);">${g.ejemplo}</div><div style="font-size:11px;color:var(--text3);">${g.n} gasto(s) · ${fmt(g.monto)}</div></div>
+<select class="fi" style="width:auto;min-width:150px;" id="cl-${i}"><option value="">— dejar sin clasificar —</option>${CATEGORIAS_GASTO.map(c=>`<option value="${c}" ${g.sugerida===c?'selected':''}>${c}</option>`).join('')}</select>
+</div>`).join('');
+document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:640px;"><div class="modal-title">🏷️ Clasificar gastos antiguos</div>
+<p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:6px;"><strong>${totalN} gastos</strong> por ${fmt(totalM)} no tienen categoría. Sin ella el presupuesto no puede contarlos.</p>
+<p style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:14px;">Ya vienen ${conSug} de ${grupos.length} con una categoría sugerida. Revísalas y corrige lo que haga falta — solo se guardan las que dejes elegidas.</p>
+<div style="max-height:46vh;overflow:auto;margin-bottom:14px;">${filas}</div>
+<div id="cl-prog" style="font-size:12px;color:var(--text3);margin-bottom:12px;"></div>
+<div style="display:flex;gap:10px;flex-wrap:wrap;"><button class="btn btn-primary" id="cl-btn" onclick="aplicarClasificacion(${grupos.length})">Guardar clasificación</button><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button></div></div></div>`;
+}
+
+async function aplicarClasificacion(nGrupos){
+const btn=document.getElementById('cl-btn');const prog=document.getElementById('cl-prog');
+if(btn){btn.disabled=true;btn.textContent='Guardando...';}
+/* se releen los grupos para tener las rutas, y se lee la eleccion de cada select */
+const grupos=gruposSinClasificar();
+const eleccion={};
+for(let i=0;i<nGrupos&&i<grupos.length;i++){
+const sel=document.getElementById('cl-'+i);
+if(sel&&sel.value)eleccion[grupos[i].clave]=sel.value;
+}
+if(!Object.keys(eleccion).length){closeModal();showToast('No elegiste ninguna categoría','');return;}
+/* rutas a tocar, sin repetir */
+const rutas=new Set();
+grupos.forEach(g=>{if(eleccion[g.clave])g.rutas.forEach(r=>rutas.add(r));});
+let ok=0,err=0,i=0;
+for(const ruta of rutas){
+i++; if(prog)prog.textContent=`Guardando ${i} de ${rutas.size}…`;
+try{
+const val=(await db.ref('cbs4/'+ruta).once('value')).val();
+if(!val)continue;
+const lista=comoLista(val);
+let cambios=false;
+lista.forEach(reg=>{
+if(!reg||typeof reg!=='object'||reg.categoria||!reg.descripcion)return;
+const cat=eleccion[normalizarTexto(reg.descripcion)];
+if(cat){reg.categoria=cat;cambios=true;ok++;}
+});
+if(cambios)await db.ref('cbs4/'+ruta).set(lista);
+}catch(e){err++;console.error('clasificando '+ruta,e);}
+}
+closeModal();renderView();
+showToast(err?`${ok} gasto(s) clasificados, ${err} error(es) — puedes repetir`:`${ok} gasto(s) clasificados ✓`,err?'error':'success');
+}
 function vConfig(){const h=appData.gastoComunHistorial||[{desde:'2022-01',valor:DEFAULT_GC}];const so=[...h].sort((a,b)=>b.desde.localeCompare(a.desde));const cg=so[0]?so[0].valor:DEFAULT_GC;
-return `<div class="page-title">Configuración</div><div class="page-sub">Ajustes del sistema</div><div class="card mb-16"><div class="config-section-title">💰 Valor Gasto Común</div><div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;"><div style="flex:1;min-width:180px;"><label class="fl">Nuevo valor ($)</label><input class="fi" id="cfg-gc-val" type="number" value="${cg}"/></div><div style="flex:1;min-width:180px;"><label class="fl">Vigente desde</label><select class="fi" id="cfg-gc-mes">${YEARS.map(y=>MESES.map((m,i)=>`<option value="${mkKey(y,i)}">${m} ${y}</option>`).join('')).join('')}</select></div><button class="btn btn-primary" onclick="saveNuevoGC()">Guardar</button></div><div class="config-section-title" style="margin-top:4px;">Historial de valores</div>${so.map(x=>`<div class="history-item"><span>Desde <strong>${formatPeriodo(x.desde)}</strong></span><span style="font-weight:600;color:var(--green)">${fmt(x.valor)}/depto</span></div>`).join('')}</div><div class="card mb-16"><div class="config-section-title"> Apariencia</div><div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;"><div><div style="font-weight:600;font-size:14px;">Tema oscuro</div><div style="font-size:12px;color:var(--text3)">Modo nocturno</div></div><label class="switch"><input type="checkbox" ${state.theme==='dark'?'checked':''} onchange="toggleTheme()"><span class="slider"></span></label></div></div><div class="card mb-16"><div class="config-section-title">📦 Comprobantes adjuntos</div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:12px;">Los comprobantes nuevos ya se guardan aparte y se descargan solo cuando los abres. Si tienes comprobantes antiguos, muévelos aquí para aligerar la app en todos los dispositivos.</div><div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${(()=>{const n=adjuntosPendientes().length;return n?`⚠️ Hay <strong>${n}</strong> comprobante(s) antiguo(s) dentro de la ficha principal (${(pesoAdjuntos()/1048576).toFixed(1)} MB).`:`✅ Todos los comprobantes están guardados aparte.`;})()}</div><button class="btn btn-primary" onclick="vMigrarAdjuntos()">📦 Revisar y mover comprobantes antiguos</button><div style="height:1px;background:var(--border);margin:16px 0;"></div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:12px;">También quedaron ramas de una versión anterior de la app que nadie usa pero que siguen viajando a cada dispositivo.</div><div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${(()=>{const r=ramasObsoletasPresentes();const t=r.reduce((s,x)=>s+x.bytes,0);return r.length?`⚠️ Hay <strong>${r.length}</strong> rama(s) antigua(s): <span style="font-family:monospace;font-size:11px;">${r.map(x=>x.rama).join(', ')}</span> (${(t/1024).toFixed(1)} KB).`:`✅ No hay ramas antiguas. El botón también revisa si quedaron archivos sueltos.`;})()}</div><button class="btn btn-danger" onclick="vLimpiarObsoletos()">🧹 Revisar y limpiar datos antiguos</button></div><div class="card"><div class="config-section-title">🔥 Sincronización Firebase</div><div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;"><span class="sync-dot ${state.connected?'':'off'}" style="width:12px;height:12px;flex-shrink:0;"></span><div><div style="font-weight:600;font-size:13px;">${state.connected?'Conectado a Firebase':'Sin conexión'}</div><div style="font-size:11px;color:var(--text3)">Los datos se sincronizan en tiempo real entre todos los dispositivos</div></div></div><p style="font-size:12px;color:var(--text3);">️ Cualquier cambio se refleja automáticamente en los otros administradores conectados.</p></div>`;}
+return `<div class="page-title">Configuración</div><div class="page-sub">Ajustes del sistema</div><div class="card mb-16"><div class="config-section-title">💰 Valor Gasto Común</div><div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;"><div style="flex:1;min-width:180px;"><label class="fl">Nuevo valor ($)</label><input class="fi" id="cfg-gc-val" type="number" value="${cg}"/></div><div style="flex:1;min-width:180px;"><label class="fl">Vigente desde</label><select class="fi" id="cfg-gc-mes">${YEARS.map(y=>MESES.map((m,i)=>`<option value="${mkKey(y,i)}">${m} ${y}</option>`).join('')).join('')}</select></div><button class="btn btn-primary" onclick="saveNuevoGC()">Guardar</button></div><div class="config-section-title" style="margin-top:4px;">📅 Plazo de pago</div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:10px;">Hasta este día del mes, el gasto común del mes en curso no se cuenta como morosidad. Pasado ese día, sí.</div><div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:18px;"><div style="flex:1;min-width:150px;"><label class="fl">Se paga hasta el día</label><input class="fi" id="cfg-dia-venc" type="number" min="1" max="28" value="${diaVencimiento()}"/></div><button class="btn btn-primary" onclick="saveDiaVencimiento()">Guardar</button></div><div class="config-section-title" style="margin-top:4px;">Historial de valores</div>${so.map(x=>`<div class="history-item"><span>Desde <strong>${formatPeriodo(x.desde)}</strong></span><span style="font-weight:600;color:var(--green)">${fmt(x.valor)}/depto</span></div>`).join('')}</div><div class="card mb-16"><div class="config-section-title"> Apariencia</div><div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;"><div><div style="font-weight:600;font-size:14px;">Tema oscuro</div><div style="font-size:12px;color:var(--text3)">Modo nocturno</div></div><label class="switch"><input type="checkbox" ${state.theme==='dark'?'checked':''} onchange="toggleTheme()"><span class="slider"></span></label></div></div><div class="card mb-16"><div class="config-section-title">🏷️ Lista de gastos</div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:12px;">Estos son los gastos que aparecen en la lista al registrar uno nuevo. Para agregar otro, elige «Otro… (escribir)» al registrar un gasto y deja marcada la casilla.</div>${(()=>{const sc=gruposSinClasificar();const n=sc.reduce((a,g)=>a+g.n,0);const m=sc.reduce((a,g)=>a+g.monto,0);return n?`<div style="padding:10px 12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;"><div style="font-size:13px;color:var(--text2);margin-bottom:8px;">⚠️ Hay <strong>${n}</strong> gasto(s) sin categoría por ${fmt(m)}. El presupuesto no podrá contarlos.</div><button class="btn btn-primary btn-sm" onclick="vClasificarGastos()">🏷️ Clasificar gastos antiguos</button></div>`:`<div style="font-size:12px;color:var(--text3);margin-bottom:12px;">✅ Todos los gastos tienen categoría.</div>`;})()}${(()=>{const propios=comoLista(appData.conceptosGasto).filter(c=>c&&c.label);const base=CONCEPTOS_GASTO.length;return `<div style="font-size:12px;color:var(--text2);margin-bottom:10px;">${base} predefinidos + <strong>${propios.length}</strong> agregados por ustedes</div>`+(propios.length?propios.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);"><span style="font-size:13px;color:var(--text2);">${c.label} <span class="badge badge-navy" style="margin-left:6px;">${c.cat||'Otros'}</span></span><button class="btn btn-ghost btn-sm" onclick="quitarConceptoGasto('${String(c.label).replace(/'/g,"\\'")}')">✕ Quitar</button></div>`).join(''):`<div style="font-size:12px;color:var(--text3);padding:6px 0;">Todavía no han agregado ninguno.</div>`);})()}</div><div class="card mb-16"><div class="config-section-title">📦 Comprobantes adjuntos</div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:12px;">Los comprobantes nuevos ya se guardan aparte y se descargan solo cuando los abres. Si tienes comprobantes antiguos, muévelos aquí para aligerar la app en todos los dispositivos.</div><div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${(()=>{const n=adjuntosPendientes().length;return n?`⚠️ Hay <strong>${n}</strong> comprobante(s) antiguo(s) dentro de la ficha principal (${(pesoAdjuntos()/1048576).toFixed(1)} MB).`:`✅ Todos los comprobantes están guardados aparte.`;})()}</div><button class="btn btn-primary" onclick="vMigrarAdjuntos()">📦 Revisar y mover comprobantes antiguos</button><div style="height:1px;background:var(--border);margin:16px 0;"></div><div style="font-size:12px;color:var(--text3);line-height:1.7;margin-bottom:12px;">También quedaron ramas de una versión anterior de la app que nadie usa pero que siguen viajando a cada dispositivo.</div><div style="font-size:13px;color:var(--text2);margin-bottom:12px;">${(()=>{const r=ramasObsoletasPresentes();const t=r.reduce((s,x)=>s+x.bytes,0);return r.length?`⚠️ Hay <strong>${r.length}</strong> rama(s) antigua(s): <span style="font-family:monospace;font-size:11px;">${r.map(x=>x.rama).join(', ')}</span> (${(t/1024).toFixed(1)} KB).`:`✅ No hay ramas antiguas. El botón también revisa si quedaron archivos sueltos.`;})()}</div><button class="btn btn-danger" onclick="vLimpiarObsoletos()">🧹 Revisar y limpiar datos antiguos</button></div><div class="card"><div class="config-section-title">🔥 Sincronización Firebase</div><div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px;margin-bottom:12px;"><span class="sync-dot ${state.connected?'':'off'}" style="width:12px;height:12px;flex-shrink:0;"></span><div><div style="font-weight:600;font-size:13px;">${state.connected?'Conectado a Firebase':'Sin conexión'}</div><div style="font-size:11px;color:var(--text3)">Los datos se sincronizan en tiempo real entre todos los dispositivos</div></div></div><p style="font-size:12px;color:var(--text3);">️ Cualquier cambio se refleja automáticamente en los otros administradores conectados.</p></div>`;}
+function saveDiaVencimiento(){
+const v=parseInt(document.getElementById('cfg-dia-venc').value);
+if(!(v>=1&&v<=28)){showToast('Elige un día entre 1 y 28','error');return;}
+if(!appData.configuracion)appData.configuracion={};
+appData.configuracion.diaVencimiento=v;
+savePath('configuracion',appData.configuracion);
+renderView();
+showToast('Plazo de pago: hasta el día '+v+' ✓','success');
+}
 function saveNuevoGC(){const v=parseInt(document.getElementById('cfg-gc-val').value);const d=document.getElementById('cfg-gc-mes').value;if(!v||v<=0){showToast('Ingrese un valor válido','error');return;}if(!appData.gastoComunHistorial)appData.gastoComunHistorial=[];const e=appData.gastoComunHistorial.find(x=>x.desde===d);if(e)e.valor=v;else appData.gastoComunHistorial.push({desde:d,valor:v});savePath('gastoComunHistorial',appData.gastoComunHistorial);showToast(`GC actualizado a ${fmt(v)} desde ${formatPeriodo(d)} ✓`,'success');}
 /* Card reutilizable "Efectivo vs Transferencia" del periodo indicado.
    Usada por vDashboard (ch-tipo-pago) y vReportes (ch-rep-tipo-pago). */
@@ -327,6 +516,20 @@ const l=document.getElementById('ch-line');if(l){const ing=MESES.map((_,i)=>{con
 const rd=document.getElementById('ch-rep-dona');if(rd){const k=mkKey(currentYear,currentMonth);const p=appData.pagos[k]||{};const pg=contarPagos(p);charts.rdona=new Chart(rd,{type:'doughnut',data:{labels:['Pagados','Pendientes'],datasets:[{data:[pg,TOTAL_DEPTOS-pg],backgroundColor:['#2DD4BF','#F59E0B'],borderWidth:0}]},options:{responsive:false,cutout:'72%',plugins:{legend:{display:false}}}});}
 const rb=document.getElementById('ch-rep-bar');if(rb){const k=mkKey(currentYear,currentMonth);const fb=(appData.gastosFijos&&appData.gastosFijos[k])?appData.gastosFijos[k]:[];const v2=(appData.gastosVariables||[]).filter(g=>g.anio===currentYear&&g.mes===currentMonth);charts.rbar=new Chart(rb,{type:'bar',data:{labels:[...fb.map(g=>g.descripcion),...v2.map(g=>g.descripcion)],datasets:[{label:'Gastos Fijos',data:fb.map(g=>g.monto),backgroundColor:'rgba(185,28,28,0.9)',borderRadius:6},{label:'Gastos Variables',data:v2.map(g=>g.monto),backgroundColor:'rgba(248,113,113,0.85)',borderRadius:6}]},options:{responsive:true,plugins:{legend:{display:true,labels:{color:tick,font:{family:'Inter',size:11}}}},scales:{y:{grid:{color:grid},ticks:{color:tick,callback:v=>fmt(v)}},x:{grid:{color:grid},ticks:{color:tick}}}}});}
 const gp=document.getElementById('ch-gc-pagos');if(gp){const rg=MESES.map((_,i)=>{const k=mkKey(currentYear,i);const p=appData.pagos[k]||{};return contarPagos(p)*getGC(currentYear,i);});charts.gcpagos=new Chart(gp,{type:'line',data:{labels:labM,datasets:[{label:'Recaudado por Gasto Común',data:rg,borderColor:'#22D3EE',backgroundColor:'rgba(34,211,238,0.12)',tension:0.4,fill:true,borderWidth:2,pointBackgroundColor:'#0891B2',pointRadius:3}]},options:{responsive:true,...co}});}
+/* Pagados vs pendientes por mes, apilado: la barra completa son los 18 deptos,
+   asi se lee de un vistazo cuantos faltan y no solo cuantos pagaron. */
+const pm=document.getElementById('ch-rep-pagados-mes');
+if(pm){
+const pagados=MESES.map((_,i)=>contarPagos(appData.pagos[mkKey(currentYear,i)]||{}));
+const pend=pagados.map(n=>TOTAL_DEPTOS-n);
+charts.repPagadosMes=new Chart(pm,{type:'bar',data:{labels:labM,datasets:[
+{label:'Al día',data:pagados,backgroundColor:'rgba(45,212,191,0.9)',borderRadius:4,stack:'d'},
+{label:'Pendientes',data:pend,backgroundColor:dk?'rgba(248,113,113,0.65)':'rgba(239,68,68,0.55)',borderRadius:4,stack:'d'}]},
+options:{responsive:true,plugins:{legend:{labels:{color:tick,font:{family:'Inter',size:11}}},
+tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y+' de '+TOTAL_DEPTOS}}},
+scales:{y:{stacked:true,beginAtZero:true,max:TOTAL_DEPTOS,grid:{color:grid},ticks:{color:tick,stepSize:3}},
+x:{stacked:true,grid:{color:grid},ticks:{color:tick}}}}});
+}
 ['ch-tipo-pago','ch-rep-tipo-pago'].forEach(cid=>{const el=document.getElementById(cid);if(!el)return;const r=resumenTipoPago(currentYear,currentMonth);if(r.total.deptos===0)return;charts[cid]=new Chart(el,{type:'doughnut',data:{labels:['Efectivo','Transferencia'],datasets:[{data:[r.efectivo.deptos,r.transferencia.deptos],backgroundColor:[tipoPagoColor('efectivo'),tipoPagoColor('transferencia')],borderWidth:0}]},options:{responsive:false,cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+c.parsed+' depto(s)'}}}}});});
 }catch(e){console.error(e);}}
 function renderLoginScreen(){let bu=localStorage.getItem('cbs4_biometric_enabled');if(bu&&!ADMINS.some(a=>a.u===bu)){localStorage.removeItem('cbs4_biometric_enabled');bu=null;}const ba=document.getElementById('biometric-area');const fa=document.getElementById('login-form-area');const st=document.getElementById('login-sub-text');if(bu){ba.style.display='block';fa.style.display='none';st.textContent='Bienvenido, '+bu;}else{ba.style.display='none';fa.style.display='block';st.textContent='Panel de Administración';}}

@@ -14,11 +14,147 @@ const LOGO_SRC = 'bosques_del_sur_4.png';
 const LOGO_VOUCHER_SRC = 'bosques_del_sur_4_voucher.png';
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const ADMINS = [{u:'I.arelluna',p:'Arelluna_123',rol:'Administrador'},{u:'R.figueroa',p:'Figueroa_123',rol:'Tesorera'},{u:'T.diaz',p:'Diaz_123',rol:'Presidenta'}];
+/* ===== CATEGORIAS Y CONCEPTOS DE GASTO =====
+   Los gastos se escribian a mano y el mismo concepto terminaba con cuatro
+   ortografias distintas ("Pago de servicios", "pago de servicios", "Pgo de
+   servicios", "Pago de servicio"), lo que hace imposible comparar contra un
+   presupuesto. La lista de abajo se armo a partir de los gastos reales ya
+   registrados, agrupando esas variantes.
+   'Otro...' deja escribir libre y elegir la categoria a mano.
+   Los gastos antiguos no tienen categoria: se muestran como 'Sin clasificar'. */
+const CATEGORIAS_GASTO=['Agua','Electricidad','Telecomunicaciones','Aseo','Jardinería','Mantención','Administración','Otros'];
+const SIN_CATEGORIA='Sin clasificar';
+const CONCEPTOS_GASTO=[
+{label:'Prorrateo de agua',            cat:'Agua'},
+{label:'Electricidad — bombas',        cat:'Electricidad'},
+{label:'Electricidad — pasillos',      cat:'Electricidad'},
+{label:'Movistar (internet/cámaras)',  cat:'Telecomunicaciones'},
+{label:'Servicio de aseo',             cat:'Aseo'},
+{label:'Bolsas de basura',             cat:'Aseo'},
+{label:'Productos de aseo',            cat:'Aseo'},
+{label:'Pastillas de cloro',           cat:'Aseo'},
+{label:'Corte de pasto',               cat:'Jardinería'},
+{label:'Poda de arbustos',             cat:'Jardinería'},
+{label:'Mantención bomba de agua',     cat:'Mantención'},
+{label:'Chapas y cerraduras',          cat:'Mantención'},
+{label:'Herramientas',                 cat:'Mantención'},
+{label:'Aplicación',                   cat:'Administración'}
+];
+/* Lista que ve el usuario: los conceptos base de arriba MAS los que el mismo
+   agrega desde el formulario. Los propios viven en cbs4/conceptosGasto para que
+   los tres administradores compartan la misma lista. */
+function conceptosDisponibles(){
+const propios=comoLista(appData.conceptosGasto).filter(c=>c&&c.label);
+const base=CONCEPTOS_GASTO.slice();
+propios.forEach(c=>{if(!base.some(b=>b.label===c.label))base.push({label:c.label,cat:c.cat||'Otros',propio:true});});
+return base;
+}
+function categoriaDeConcepto(label){const c=conceptosDisponibles().find(x=>x.label===label);return c?c.cat:'';}
+/* Agrega un concepto nuevo a la lista compartida (si no existe ya) */
+function agregarConcepto(label,cat){
+label=(label||'').trim();
+if(!label)return Promise.resolve(false);
+if(conceptosDisponibles().some(c=>c.label.toLowerCase()===label.toLowerCase()))return Promise.resolve(false);
+if(!appData.conceptosGasto)appData.conceptosGasto=[];
+appData.conceptosGasto=comoLista(appData.conceptosGasto);
+appData.conceptosGasto.push({label:label,cat:cat||'Otros'});
+return savePath('conceptosGasto',appData.conceptosGasto).then(()=>true);
+}
+function eliminarConcepto(label){
+appData.conceptosGasto=comoLista(appData.conceptosGasto).filter(c=>c&&c.label!==label);
+return savePath('conceptosGasto',appData.conceptosGasto);
+}
+function categoriaDeGasto(g){return (g&&g.categoria)?g.categoria:SIN_CATEGORIA;}
+
+/* Pistas para SUGERIR una categoria a partir del texto del gasto. Solo sugieren:
+   la decision final es del usuario en la pantalla de clasificacion. El orden
+   importa — gana la primera que calce. */
+const PISTAS_CATEGORIA=[
+['Agua',              ['agua','prorrateo']],
+['Telecomunicaciones',['movistar','internet','telefon','camara','wifi','fibra']],
+['Electricidad',      ['luz','enel','electric','ampolleta','lampara','alumbrado']],
+['Jardinería',        ['pasto','cesped','arbusto','arbol','jardin','poda','planta','maleza','riego']],
+['Mantención',        ['bomba','motor','chapa','cerradura','puerta','porton','reparacion','arreglo','herramienta','peldano','impermeabiliz','pozo','by pass','bypass','manguera','pastelon','pintura','techo','soldadura','cambio']],
+['Aseo',              ['aseo','limpieza','basura','bolsa','cloro','mopa','escoba','pala','detergente','servicio','sevicio','desinfec']],
+['Administración',    ['aplicacion','app','hosting','dominio','aguinaldo','colecta','rifa','notaria','tramite','banco','comision']]
+];
+/* Texto normalizado: minusculas, sin tildes ni puntuacion. Sirve para agrupar
+   las variantes de escritura del mismo gasto y para buscar las pistas. */
+function normalizarTexto(t){
+return String(t||'').toLowerCase()
+.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+.replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
+}
+function sugerirCategoria(desc){
+const t=normalizarTexto(desc);
+if(!t)return '';
+const c=conceptosDisponibles().find(x=>normalizarTexto(x.label)===t);
+if(c)return c.cat;
+for(const [cat,claves] of PISTAS_CATEGORIA){ if(claves.some(k=>t.indexOf(k)!==-1))return cat; }
+return '';
+}
+/* Recorre gastos fijos y variables y arma los grupos SIN clasificar.
+   Agrupa por texto normalizado: no adivina que "Pgo de servicios" y "Pago de
+   servicios" son lo mismo, los deja como dos filas. Es mas predecible que
+   agrupar por similitud, y ordenados por monto los grandes quedan arriba. */
+function gruposSinClasificar(){
+const g={};
+const sumar=(reg,ruta)=>{
+if(!reg||typeof reg!=='object')return;
+if(reg.categoria)return;
+if(!reg.descripcion)return;
+const k=normalizarTexto(reg.descripcion);
+if(!k)return;
+if(!g[k])g[k]={clave:k,ejemplo:String(reg.descripcion),n:0,monto:0,sugerida:sugerirCategoria(reg.descripcion),rutas:new Set()};
+g[k].n++; g[k].monto+=(Number(reg.monto)||0); g[k].rutas.add(ruta);
+};
+const gf=appData.gastosFijos||{};
+Object.keys(gf).forEach(k=>comoLista(gf[k]).forEach(r=>sumar(r,'gastosFijos/'+k)));
+comoLista(appData.gastosVariables).forEach(r=>sumar(r,'gastosVariables'));
+return Object.values(g).sort((a,b)=>b.monto-a.monto);
+}
+/* <select> de conceptos + opcion libre. 'pre' es el prefijo de los ids del formulario. */
+function selectConceptos(pre,sel){
+return `<select class="fi" id="${pre}-concepto" onchange="onConceptoElegido('${pre}')">`
++`<option value="">— Elegir gasto —</option>`
++conceptosDisponibles().map(c=>`<option value="${c.label}" ${sel===c.label?'selected':''}>${c.label}</option>`).join('')
++`<option value="__otro__" ${sel==='__otro__'?'selected':''}>Otro… (escribir)</option></select>`;
+}
+function selectCategorias(pre,sel){
+return `<select class="fi" id="${pre}-cat">`
++CATEGORIAS_GASTO.map(c=>`<option value="${c}" ${sel===c?'selected':''}>${c}</option>`).join('')
++`</select>`;
+}
+/* Al elegir un concepto de la lista se completa la categoria sola y se esconde
+   el campo libre; con 'Otro...' pasa lo contrario. */
+function onConceptoElegido(pre){
+const sel=document.getElementById(pre+'-concepto');
+const libre=document.getElementById(pre+'-libre');
+const cat=document.getElementById(pre+'-cat');
+const catWrap=document.getElementById(pre+'-cat-wrap');
+if(!sel)return;
+const otro=sel.value==='__otro__';
+if(libre)libre.style.display=otro?'block':'none';
+if(catWrap)catWrap.style.display=otro?'block':'none';
+if(cat&&!otro&&sel.value){const c=categoriaDeConcepto(sel.value);if(c)cat.value=c;}
+}
+/* Devuelve {descripcion, categoria} leyendo el formulario */
+function leerConcepto(pre){
+const sel=document.getElementById(pre+'-concepto');
+const libre=document.getElementById(pre+'-libre-input');
+const cat=document.getElementById(pre+'-cat');
+if(!sel)return {descripcion:'',categoria:''};
+if(sel.value==='__otro__'){
+const guardar=document.getElementById(pre+'-recordar');
+return {descripcion:(libre?libre.value.trim():''),categoria:(cat?cat.value:'Otros'),recordar:!!(guardar&&guardar.checked)};
+}
+return {descripcion:sel.value,categoria:categoriaDeConcepto(sel.value)||'Otros'};
+}
 const DEFAULT_GC = 40000;
 const TOTAL_DEPTOS = 18;
 const YEARS = [2018,2019,2020,2021,2022,2023,2024,2025,2026,2027,2028];
 let state = {loggedIn:false,isTransparencia:false,currentView:'dashboard',currentYear:new Date().getFullYear(),currentMonth:new Date().getMonth(),theme:'light',connected:false,formulariosSortAsc:false,ventanaMorosidad:'12'};
-function defaultData(){return {departamentos:Array.from({length:18},(_,i)=>({id:i+1,numero:String(i+1).padStart(2,'0'),representante:'',contacto:''})),pagos:{},ingresosExtra:[],gastosFijos:{},gastosVariables:[],gastoComunHistorial:[{desde:'2022-01',valor:DEFAULT_GC}],configuracion:{tema:'light'},formularios:[],multas:[]};}
+function defaultData(){return {departamentos:Array.from({length:18},(_,i)=>({id:i+1,numero:String(i+1).padStart(2,'0'),representante:'',contacto:''})),pagos:{},ingresosExtra:[],gastosFijos:{},gastosVariables:[],gastoComunHistorial:[{desde:'2022-01',valor:DEFAULT_GC}],configuracion:{tema:'light'},formularios:[],multas:[],conceptosGasto:[],mantenciones:[],mantencionesHechas:[],proveedores:[],rubrosProveedor:[],certificados:[],novedades:[]};}
 let appData = defaultData();
 let firebaseListener = null;
 let lastVoucher = null;
@@ -65,7 +201,19 @@ pagos: val.pagos||{},
 gastoComunHistorial: hist.length?hist:[{desde:'2022-01',valor:DEFAULT_GC}],
 configuracion: val.configuracion||{tema:'light'},
 formularios: comoLista(val.formularios),
-multas: comoLista(val.multas)};
+multas: comoLista(val.multas),
+conceptosGasto: comoLista(val.conceptosGasto),
+mantenciones: comoLista(val.mantenciones),
+mantencionesHechas: comoLista(val.mantencionesHechas),
+proveedores: comoListaConId(val.proveedores),
+rubrosProveedor: comoLista(val.rubrosProveedor),
+certificados: comoListaConId(val.certificados),
+novedades: comoListaConId(val.novedades)};
+/* Copia profunda de lo que hay REALMENTE en Firebase: la auditoria la compara
+   contra lo que se va a escribir (appData ya viene mutado por quien llama). */
+if(typeof guardarInstantaneaLocal==='function')guardarInstantaneaLocal(val);
+if(typeof programarRespaldoAutomatico==='function')programarRespaldoAutomatico();
+if(typeof novRefrescarAlerta==='function')novRefrescarAlerta(false);
 }
 else {db.ref('cbs4').set(appData);}
 const overlay=document.getElementById('loading-overlay');
@@ -84,6 +232,8 @@ function saveData(){db.ref('cbs4').set(appData).catch(e=>showToast('Error al gua
    saveData() se conserva para el arranque (initFirebase) y para cambios que
    afecten a mas de una rama. */
 function savePath(ruta,valor){
+/* Registro de cambios: jamas debe impedir ni retrasar el guardado. */
+try{if(typeof auditarCambio==='function')auditarCambio(ruta,valor);}catch(e){console.warn('auditoria:',e);}
 return db.ref('cbs4/'+ruta).set(valor===undefined?null:valor).catch(e=>showToast('Error al guardar: '+e.message,'error'));
 }
 
@@ -175,6 +325,19 @@ else buscar(o[k]);
 return Object.keys(ids).filter(id=>!usados.has(id));
 }).catch(()=>[]);
 }
+/* Escapa texto antes de meterlo en innerHTML. La app nunca lo hacia porque todo lo
+   escribian los administradores; pero Novedades recibe texto de un formulario
+   externo, y ahi un '<script>' o '<img onerror=...>' se ejecutaria en el navegador
+   de quien abra la vista. Todo dato que no escribio un administrador pasa por aqui. */
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+/* Como comoLista(), pero conserva la CLAVE de Firebase como id cuando el registro
+   no trae uno propio (los registros que crea un script externo con push() no lo traen). */
+function comoListaConId(v){
+if(!v||typeof v!=='object')return [];
+const ent=Array.isArray(v)?v.map((r,i)=>[String(i),r]):Object.entries(v);
+return ent.filter(([k,r])=>r&&typeof r==='object')
+ .map(([k,r])=>(r.id===undefined||r.id===null)?{...r,id:k}:r);
+}
 function fmt(n){return new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0}).format(n);}
 function mkKey(y,m){return `${y}-${String(m+1).padStart(2,'0')}`;}
 function showToast(msg,type=''){const t=document.getElementById('toast-el');t.textContent=msg;t.className=`toast ${type}`;setTimeout(()=>t.classList.add('show'),10);setTimeout(()=>t.classList.remove('show'),2800);}
@@ -197,15 +360,26 @@ async function loginConHuella(){const u=localStorage.getItem('cbs4_biometric_ena
 function enterTransparencia(){state.isTransparencia=true;state.loggedIn=false;state.currentView='reportes';showApp();}
 function backToLogin(){state.isTransparencia=false;state.loggedIn=false;document.getElementById('app').style.display='none';document.getElementById('login-screen').style.display='flex';renderLoginScreen();}
 function doLogout(){clearSession();backToLogin();}
-function showApp(){document.getElementById('login-screen').style.display='none';document.getElementById('app').style.display='flex';document.getElementById('transp-banner-el').style.display=state.isTransparencia?'flex':'none';const c=(ADMINS.find(a=>a.u===checkSession())||{}).rol||'Admin';document.getElementById('badge-el').className=state.isTransparencia?'badge-view':'badge-admin';document.getElementById('badge-el').textContent=state.isTransparencia?'Solo Lectura':c;document.getElementById('logout-btn').style.display=state.isTransparencia?'none':'block';const ys=document.getElementById('year-sel');ys.innerHTML=YEARS.map(y=>`<option value="${y}" ${y===state.currentYear?'selected':''}>${y}</option>`).join('');renderSidebar();renderBNav();renderView();}
-const VIEWS_ADMIN=[{id:'dashboard',icon:'🏠',label:'Dashboard'},{id:'gastoComun',icon:'💳',label:'Gasto Común'},{id:'recordatorios',icon:'💬',label:'Recordatorios'},{id:'departamentos',icon:'🏘',label:'Departamentos'},{id:'ingresosExtra',icon:'➕',label:'Ingresos Extra'},{id:'egresos',icon:'💸',label:'Gastos'},{id:'reportes',icon:'📊',label:'Transparencia'},{id:'config',icon:'⚙️',label:'Configuración'},{id:'formularios',icon:'📝',label:'Formulario'},{id:'multas',icon:'⚖️',label:'Multas'}];
+function showApp(){document.getElementById('login-screen').style.display='none';document.getElementById('app').style.display='flex';document.getElementById('transp-banner-el').style.display=state.isTransparencia?'flex':'none';const c=(ADMINS.find(a=>a.u===checkSession())||{}).rol||'Admin';document.getElementById('badge-el').className=state.isTransparencia?'badge-view':'badge-admin';document.getElementById('badge-el').textContent=state.isTransparencia?'Solo Lectura':c;document.getElementById('logout-btn').style.display=state.isTransparencia?'none':'block';const ys=document.getElementById('year-sel');ys.innerHTML=YEARS.map(y=>`<option value="${y}" ${y===state.currentYear?'selected':''}>${y}</option>`).join('');renderSidebar();renderBNav();renderView();if(!state.isTransparencia&&typeof programarRespaldoAutomatico==='function')programarRespaldoAutomatico();if(!state.isTransparencia&&typeof novRefrescarAlerta==='function')novRefrescarAlerta(true);}
+const VIEWS_ADMIN=[{id:'dashboard',icon:'🏠',label:'Panel Central'},{id:'gastoComun',icon:'💳',label:'Gasto Común'},{id:'ingresosExtra',icon:'➕',label:'Ingresos Extras'},{id:'egresos',icon:'💸',label:'Gastos'},{id:'multas',icon:'⚖️',label:'Multas'},{id:'mantenciones',icon:'🔧',label:'Mantenciones'},{id:'proveedores',icon:'🤝',label:'Proveedores'},{id:'novedades',icon:'📨',label:'Novedades'},{id:'certificados',icon:'📜',label:'Certificados'},{id:'departamentos',icon:'🏘',label:'Departamentos'},{id:'recordatorios',icon:'⚠️',label:'Morosidad'},{id:'reportes',icon:'📊',label:'Transparencia'},{id:'config',icon:'⚙️',label:'Configuración'},{id:'formularios',icon:'📝',label:'Formularios'},{id:'auditoria',icon:'🕵️',label:'Registro de cambios'}];
+/* Menu agrupado en tarjetas: una sola fuente para la barra lateral y el cajon movil. */
+const NAV_GROUPS=[
+ {t:'Principal',ids:['dashboard','gastoComun','ingresosExtra','egresos','multas']},
+ {t:'Gestión',ids:['mantenciones','proveedores','novedades','certificados']},
+ {t:'Comunidad',ids:['departamentos','recordatorios']},
+ {t:'Público',ids:['reportes']},
+ {t:'Sistema',ids:['config','formularios','auditoria']}];
+function navBadge(id){if(id!=='novedades'||typeof novNuevasCount!=='function')return '';const n=novNuevasCount();return n?`<span class="nav-badge">${n>99?'99+':n}</span>`:'';}
+function navTarjetas(modo){
+ return NAV_GROUPS.map((g,i)=>`<div class="nav-card" style="--nd:${(-i*1.3).toFixed(1)}s"><div class="nav-card-t">${g.t}</div>${g.ids.map(id=>{const v=VIEWS_ADMIN.find(x=>x.id===id);if(!v)return '';return modo==='drawer'?navDrawerItem(v.id,v.icon,v.label+navBadge(v.id)):`<div class="nav-item ${state.currentView===v.id?'active':''}" onclick="goTo('${v.id}')"><span class="nav-ico">${v.icon}</span>${v.label}${navBadge(v.id)}</div>`;}).join('')}</div>`).join('');
+}
 const VIEWS_TRANSP=[{id:'reportes',icon:'📊',label:'Reporte'}];
 function getViews(){return state.isTransparencia?VIEWS_TRANSP:VIEWS_ADMIN;}
-function renderSidebar(){try{document.getElementById('sidebar').innerHTML='<div class="nav-label">Menú</div>'+getViews().map(v=>`<div class="nav-item ${state.currentView===v.id?'active':''}" onclick="goTo('${v.id}')">${v.icon} ${v.label}</div>`).join('');}catch(e){console.error(e);}}
+function renderSidebar(){try{document.getElementById('sidebar').innerHTML=state.isTransparencia?'<div class="nav-card"><div class="nav-card-t">Vista Transparencia</div>'+VIEWS_TRANSP.map(v=>`<div class="nav-item ${state.currentView===v.id?'active':''}" onclick="goTo('${v.id}')"><span class="nav-ico">${v.icon}</span>${v.label}</div>`).join('')+'</div>':navTarjetas('side');}catch(e){console.error(e);}}
 function renderBNav(){renderDrawerNav();}
 function renderDrawerNav(){try{const navEl=document.getElementById('drawer-nav');if(!navEl)return;const isAdmin=!state.isTransparencia;let h='';
-if(isAdmin){h+='<div class="drawer-nav-label">Principal</div>';h+=navDrawerItem('dashboard','🏠','Dashboard');h+=navDrawerItem('gastoComun','💳','Gasto Común');h+=navDrawerItem('recordatorios','💬','Recordatorios');h+=navDrawerItem('departamentos','🏘','Departamentos');h+='<div class="drawer-nav-sep"></div><div class="drawer-nav-label">Finanzas</div>';h+=navDrawerItem('ingresosExtra','➕','Ingresos Extra');h+=navDrawerItem('egresos','💸','Gastos');h+='<div class="drawer-nav-sep"></div><div class="drawer-nav-label">Reportes y Config</div>';h+=navDrawerItem('reportes','📊','Transparencia');h+=navDrawerItem('config','⚙️','Configuración');h+=navDrawerItem('formularios','📝','Formulario');h+=navDrawerItem('multas','⚖️','Multas');}
-else{h+='<div class="drawer-nav-label">Vista Transparencia</div>';h+=navDrawerItem('reportes','📊','Reporte');}
+if(isAdmin){h+=navTarjetas('drawer');}
+else{h+='<div class="nav-card" style="--nd:0s"><div class="nav-card-t">Vista Transparencia</div>'+navDrawerItem('reportes','📊','Reporte')+'</div>';}
 navEl.innerHTML=h;const f=document.getElementById('drawer-footer');
 if(f){if(isAdmin)f.innerHTML=`<div class="drawer-footer-info">Sesión activa · Admin</div><button class="drawer-logout" onclick="doLogout();closeDrawer()">Cerrar Sesión</button>`;else f.innerHTML=`<div class="drawer-footer-info">Vista Residentes · Solo lectura</div><button class="drawer-logout" style="background:var(--accent-deep);" onclick="backToLogin();closeDrawer()">← Volver al Login</button>`;}
 const s=document.getElementById('drawer-sub');if(s)s.textContent=isAdmin?'Panel de Administración':'Vista Transparencia';}catch(e){console.error(e);}}
@@ -218,10 +392,12 @@ function setMonth(m){state.currentMonth=m;renderView();}
 function monthTabs(){return '<div class="month-tabs">'+MESES.map((m,i)=>`<div class="month-tab ${i===state.currentMonth?'active':''}" onclick="setMonth(${i})">${m.substring(0,3)}</div>`).join('')+'</div>';}
 let charts={};
 function killCharts(){Object.values(charts).forEach(c=>{try{c.destroy();}catch(e){}});charts={};}
-function animateCounters(){try{document.querySelectorAll('#main-content .stat-value').forEach(el=>{if(el.children.length)return;const o=el.textContent.trim();const d=o.replace(/[^\d]/g,'');if(!d)return;const t=parseInt(d,10);if(isNaN(t)||t<=0)return;const neg=o.indexOf('-')!==-1;const dur=800;const st=performance.now();function fr(t2){const p=Math.min(1,(t2-st)/dur);const e=1-Math.pow(1-p,3);const v=Math.round(t*e);el.textContent=(neg?'-':'')+fmt(v);if(p<1){requestAnimationFrame(fr);}else{el.textContent=o;}}requestAnimationFrame(fr);});}catch(e){}}
+function animateCounters(){try{document.querySelectorAll('#main-content .stat-value').forEach(el=>{if(el.children.length)return;/* data-plain: el valor es un conteo, no dinero. Sin esto la animacion lo
+   formateaba como moneda ('$4') durante 800ms antes de restaurarlo. */
+if(el.hasAttribute('data-plain'))return;const o=el.textContent.trim();const d=o.replace(/[^\d]/g,'');if(!d)return;const t=parseInt(d,10);if(isNaN(t)||t<=0)return;const neg=o.indexOf('-')!==-1;const dur=800;const st=performance.now();function fr(t2){const p=Math.min(1,(t2-st)/dur);const e=1-Math.pow(1-p,3);const v=Math.round(t*e);el.textContent=(neg?'-':'')+fmt(v);if(p<1){requestAnimationFrame(fr);}else{el.textContent=o;}}requestAnimationFrame(fr);});}catch(e){}}
 function initParticles(){try{const c=document.getElementById('bg-particles');if(!c)return;const ctx=c.getContext('2d');if(!ctx)return;if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;let W,H,pts=[];function rs(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;const n=Math.min(40,Math.floor(W/35));pts=Array.from({length:n},()=>({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.2,vy:(Math.random()-.5)*.2,r:Math.random()*1.2+.4,c:Math.random()<.5?'8,145,178':'45,212,191'}));}rs();window.addEventListener('resize',rs);(function loop(){ctx.clearRect(0,0,W,H);const dk=document.documentElement.getAttribute('data-theme')==='dark';const b=dk?.35:.2;for(const p of pts){p.x+=p.vx;p.y+=p.vy;if(p.x<0||p.x>W)p.vx*=-1;if(p.y<0||p.y>H)p.vy*=-1;}for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++){const a=pts[i],b=pts[j],dx=a.x-b.x,dy=a.y-b.y,d=dx*dx+dy*dy;if(d<120*120){const al=(1-Math.sqrt(d)/120)*b*.4;ctx.strokeStyle='rgba(8,145,178,'+al.toFixed(3)+')';ctx.lineWidth=.5;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}for(const p of pts){ctx.fillStyle='rgba('+p.c+','+(b*.6).toFixed(3)+')';ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.283);ctx.fill();}requestAnimationFrame(loop);})();}catch(e){}}
 function renderView(){killCharts();const el=document.getElementById('main-content');if(!el)return;const v=state.currentView;try{
-if(v==='dashboard')el.innerHTML=vDashboard();else if(v==='gastoComun')el.innerHTML=vGastoComun();else if(v==='recordatorios')el.innerHTML=vRecordatorios();else if(v==='departamentos')el.innerHTML=vDepartamentos();else if(v==='ingresosExtra')el.innerHTML=vIngresosExtra();else if(v==='egresos')el.innerHTML=vEgresos();else if(v==='reportes')el.innerHTML=vReportes();else if(v==='config')el.innerHTML=vConfig();else if(v==='formularios')el.innerHTML=vFormularios();else if(v==='multas')el.innerHTML=vMultas();else el.innerHTML='<div style="padding:20px;">Vista no encontrada</div>';
+if(v==='dashboard')el.innerHTML=vDashboard();else if(v==='gastoComun')el.innerHTML=vGastoComun();else if(v==='recordatorios')el.innerHTML=vRecordatorios();else if(v==='departamentos')el.innerHTML=vDepartamentos();else if(v==='ingresosExtra')el.innerHTML=vIngresosExtra();else if(v==='egresos')el.innerHTML=vEgresos();else if(v==='reportes')el.innerHTML=vReportes();else if(v==='config')el.innerHTML=vConfig()+cardRespaldos();else if(v==='formularios')el.innerHTML=vFormularios();else if(v==='multas')el.innerHTML=vMultas();else if(v==='mantenciones')el.innerHTML=vMantenciones();else if(v==='proveedores')el.innerHTML=vProveedores();else if(v==='novedades')el.innerHTML=vNovedades();else if(v==='certificados')el.innerHTML=vCertificados();else if(v==='auditoria')el.innerHTML=vAuditoria();else el.innerHTML='<div style="padding:20px;">Vista no encontrada</div>';
 }catch(e){console.error(e);el.innerHTML='<div style="padding:20px;color:var(--danger)">Error al cargar la vista. Recarga la página.</div>';}
 setTimeout(drawCharts,100);setTimeout(animateCounters,60);}
 /* ===== TIPO DE PAGO (efectivo / transferencia) =====
@@ -296,11 +472,64 @@ function compartirPorWhatsApp(img,texto,tel,fname){try{const f=dataUrlToFileImg(
 function compartirUltimoVoucher(){if(!lastVoucher)return;const lv=lastVoucher;let t='';let tel=(lv.depto&&lv.depto.contacto)||'';
 if(lv.tipo==='pago'){t=`✅ CONDOMINIO BOSQUES DEL SUR 4\nLe confirmamos la recepción de su pago del Gasto Común de ${lv.mesStr} por ${fmt(lv.gc)}.\nTipo de pago: ${lv.tipoPagoLabel||'Transferencia'}\n¡Gracias por estar al día! 🙌`;}
 else if(lv.tipo==='multa'){t=`⚖️ CONDOMINIO BOSQUES DEL SUR 4\nNotificación de multa — Depto ${lv.depto.numero||''}\nRegla: ${lv.multa.regla}\nMonto: ${fmt(lv.multa.monto)}\nFecha: ${lv.multa.fecha_creacion}\nPara regularizar transfiera a:\nRomina Gabriela Figueroa Acevedo\nMercado Pago — Cuenta Vista\nN° 1088283442`;}
-else if(lv.tipo==='estado'){t=lv.texto;}
+else if(lv.tipo==='estado'||lv.tipo==='certificado'){t=lv.texto;}
 compartirPorWhatsApp(lv.img,t,tel,'Comprobante_CBS4.jpg');}
 /* ===== MOROSIDAD ===== */
-function clavesVentana(t){const now=new Date();const k=[];if(t==='12'){for(let i=0;i<12;i++){const d=new Date(now.getFullYear(),now.getMonth()-i,1);k.push(mkKey(d.getFullYear(),d.getMonth()));}k.reverse();}else if(t==='anio'){for(let m=0;m<=now.getMonth();m++){k.push(mkKey(now.getFullYear(),m));}}else{for(let y=2018;y<=now.getFullYear();y++){const l=(y===now.getFullYear())?now.getMonth():11;for(let m=0;m<=l;m++){k.push(mkKey(y,m));}}}return k;}
-function calcularMorosidad(){const t=state.ventanaMorosidad||'12';const keys=clavesVentana(t);const out=[];(appData.departamentos||[]).forEach(dep=>{const gcM=[];keys.forEach(k=>{if(!estaPagado((appData.pagos[k]||{})[dep.id])){const a=parseInt(k.substring(0,4));const mi=parseInt(k.substring(5,7))-1;gcM.push({key:k,label:formatPeriodo(k),monto:getGC(a,mi)});}});const mul=(appData.multas||[]).filter(m=>{if(m.unidad_id!==dep.id)return false;if(m.estado==='Pagada'||m.estado==='Anulada')return false;const mk=m.anio+'-'+String(m.mes+1).padStart(2,'0');return keys.includes(mk);});const tGC=gcM.reduce((s,g)=>s+g.monto,0);const tM=mul.reduce((s,m)=>s+m.monto,0);const tot=tGC+tM;if(tot>0)out.push({dep,gcMeses:gcM,multas:mul,total:tot});});out.sort((a,b)=>b.total-a.total);return out;}
+/* ===== PLAZO DE PAGO =====
+   El gasto común del mes en curso se puede pagar hasta el dia DIA_VENCIMIENTO.
+   Hasta ese dia inclusive NO se considera morosidad: el vecino esta dentro de
+   plazo. Desde el dia siguiente, el mes en curso entra en la cartera vencida.
+   El dia es configurable desde Configuracion (appData.configuracion.diaVencimiento). */
+const DIA_VENCIMIENTO_DEFAULT=8;
+function diaVencimiento(){
+const v=parseInt((appData.configuracion||{}).diaVencimiento);
+return (v>=1&&v<=28)?v:DIA_VENCIMIENTO_DEFAULT;
+}
+/* true si el mes en curso todavia esta dentro de plazo */
+function mesEnCursoDentroDePlazo(hoy){
+const d=hoy||new Date();
+return d.getDate()<=diaVencimiento();
+}
+/* Ultimo periodo que ya se puede exigir. Si estamos dentro de plazo, el mes en
+   curso no cuenta y el ultimo exigible es el anterior. */
+function ultimoPeriodoExigible(hoy){
+const d=hoy||new Date();
+const y=d.getFullYear(), m=d.getMonth();
+if(mesEnCursoDentroDePlazo(d)){
+return (m===0)?{anio:y-1,mes:11}:{anio:y,mes:m-1};
+}
+return {anio:y,mes:m};
+}
+function clavesVentana(t){
+const lim=ultimoPeriodoExigible();
+const k=[];
+if(t==='12'){
+for(let i=0;i<12;i++){const d=new Date(lim.anio,lim.mes-i,1);k.push(mkKey(d.getFullYear(),d.getMonth()));}
+k.reverse();
+}else if(t==='anio'){
+const y=new Date().getFullYear();
+if(lim.anio<y)return [];               /* enero dentro de plazo: nada exigible este año */
+for(let m=0;m<=lim.mes;m++)k.push(mkKey(y,m));
+}else{
+/* «Todo el historial» parte del primer periodo con pagos registrados. Antes partia
+   en 2018 aunque los registros empiezan en 2025: cada depto aparecia con ~90 meses
+   de deuda (unos $61 millones en total) que nunca existieron. */
+const ini=primerPeriodoRegistrado();
+for(let y=ini.anio;y<=lim.anio;y++){
+const m0=(y===ini.anio)?ini.mes:0;
+const l=(y===lim.anio)?lim.mes:11;
+for(let m=m0;m<=l;m++)k.push(mkKey(y,m));
+}
+}
+return k;
+}
+/* Primer periodo (YYYY-MM) en que existe al menos un pago registrado. */
+function primerPeriodoRegistrado(){
+const ks=Object.keys(appData.pagos||{}).filter(k=>/^\d{4}-\d{2}$/.test(k)&&Object.values(appData.pagos[k]||{}).some(v=>estaPagado(v))).sort();
+if(!ks.length)return {anio:2018,mes:0};
+return {anio:parseInt(ks[0].slice(0,4)),mes:parseInt(ks[0].slice(5,7))-1};
+}
+function calcularMorosidad(ventana){const t=ventana||state.ventanaMorosidad||'12';const keys=clavesVentana(t);const out=[];(appData.departamentos||[]).forEach(dep=>{const gcM=[];keys.forEach(k=>{if(!estaPagado((appData.pagos[k]||{})[dep.id])){const a=parseInt(k.substring(0,4));const mi=parseInt(k.substring(5,7))-1;gcM.push({key:k,label:formatPeriodo(k),monto:getGC(a,mi)});}});const mul=(appData.multas||[]).filter(m=>{if(m.unidad_id!==dep.id)return false;if(m.estado==='Pagada'||m.estado==='Anulada')return false;const mk=m.anio+'-'+String(m.mes+1).padStart(2,'0');return keys.includes(mk);});const tGC=gcM.reduce((s,g)=>s+g.monto,0);const tM=mul.reduce((s,m)=>s+m.monto,0);const tot=tGC+tM;if(tot>0)out.push({dep,gcMeses:gcM,multas:mul,total:tot});});out.sort((a,b)=>b.total-a.total);return out;}
 function textoMoroso(m){let t=`Hola ${m.dep.representante||''} 👋\nCONDOMINIO BOSQUES DEL SUR 4\nLe enviamos su estado de cuenta pendiente:\n`;if(m.gcMeses.length){t+='\nGASTO COMÚN:\n'+m.gcMeses.map(g=>`• ${g.label}: ${fmt(g.monto)}`).join('\n')+'\n';}if(m.multas.length){t+='\nMULTAS:\n'+m.multas.map(x=>`• ${x.fecha_creacion} · ${x.regla}: ${fmt(x.monto)}`).join('\n')+'\n';}t+=`\nTOTAL PENDIENTE: ${fmt(m.total)}\n\nDatos de transferencia:\nRomina Gabriela Figueroa Acevedo\nMercado Pago — Cuenta Vista\nN° 1088283442`;return t;}
 function recordarMorosoWhatsApp(id){const m=calcularMorosidad().find(x=>x.dep.id===id);if(!m)return;abrirWhatsApp(m.dep.contacto||'',textoMoroso(m));}
 function recordarMesActual(id){const {currentYear,currentMonth}=state;const d=(appData.departamentos||[]).find(x=>x.id===id);if(!d)return;const gc=getGC(currentYear,currentMonth);const t=`Hola ${d.representante||''} 👋\nCONDOMINIO BOSQUES DEL SUR 4\nLe recordamos que el Gasto Común de ${MESES[currentMonth]} ${currentYear} (${fmt(gc)}) se encuentra pendiente.\n\nDatos de transferencia:\nRomina Gabriela Figueroa Acevedo\nMercado Pago — Cuenta Vista\nN° 1088283442`;abrirWhatsApp(d.contacto||'',t);}

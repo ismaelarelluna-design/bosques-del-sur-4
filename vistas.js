@@ -19,7 +19,7 @@ function vDashboard(){
   const tI=pg*gc+ex+mp, tE=f+va, bal=tI-tE;
   const isAdmin=!state.isTransparencia;
   
-  return `<div class="page-title">Dashboard General</div>
+  return `<div class="page-title">Panel Central</div>
   <div class="page-sub">Año ${currentYear} — ${MESES[currentMonth]} | GC: ${fmt(gc)}/depto</div>
   ${monthTabs()}
   ${isAdmin?`<div style="margin-bottom:16px;"><button class="btn btn-primary" onclick="copyResidentesLink()">🔗 Copiar link para residentes</button></div>`:''}
@@ -51,6 +51,9 @@ function vDashboard(){
     <div class="card"><div class="card-title">Ingresos vs Egresos</div><canvas id="ch-bar"></canvas></div>
     <div class="card"><div class="card-title">Depto. Pagados (Global)</div><canvas id="ch-deptos"></canvas></div>
   </div>
+  ${isAdmin&&typeof avisoRespaldo==='function'?avisoRespaldo():''}
+  ${typeof cardNovedades==='function'?cardNovedades():''}
+  ${cardMantencionesProximas()}
   ${cardTipoPago('ch-tipo-pago',currentYear,currentMonth)}
   <div class="card"><div class="card-title">Evolución Anual ${currentYear}</div><canvas id="ch-line"></canvas></div>`;
 }
@@ -250,41 +253,99 @@ function vEgresos(){
   const fm=(appData.gastosFijos&&appData.gastosFijos[key])?appData.gastosFijos[key]:[];
   const tF=fm.reduce((s,g)=>s+g.monto,0);
   const tV=va.reduce((s,g)=>s+g.monto,0);
+
+  /* Etiqueta de categoría: gris discreto cuando falta, badge cuando existe. */
+  const badgeCat=(g)=>{const c=categoriaDeGasto(g);
+    return c===SIN_CATEGORIA?`<span style="font-size:11px;color:var(--text3);font-style:italic;">${c}</span>`:`<span class="badge badge-navy">${c}</span>`;};
+
+  /* Acciones con NOMBRE, no solo íconos. Se agrupan a la derecha y no se parten
+     en varias líneas; la tabla tiene scroll horizontal en pantallas chicas. */
+  const acciones=(g,tipo)=>{
+    const ref=tipo==='fijo'?`'fijo',${g.id},'${key}'`:`'var',${g.id}`;
+    const del=tipo==='fijo'?`delFijo(${g.id},'${key}')`:`delVariable(${g.id})`;
+    return `<div style="display:flex;gap:6px;justify-content:flex-end;white-space:nowrap;">
+      <button class="btn btn-outline btn-sm" onclick="editarGasto(${ref})" title="Editar este gasto">✎ Editar</button>
+      ${tieneAdjunto(g)
+        ? `<button class="btn btn-ghost btn-sm" onclick="quitarAdjunto(${ref})" title="Quitar el comprobante">✕ Quitar boleta</button>`
+        : `<button class="btn btn-ghost btn-sm" onclick="adjuntarArchivo(${ref})" title="Adjuntar comprobante">📎 Adjuntar</button>`}
+      <button class="btn btn-danger btn-sm" onclick="${del}" title="Eliminar el gasto">🗑 Eliminar</button>
+    </div>`;};
+
+  const celdaComprobante=(g,tipo)=>{
+    const ref=tipo==='fijo'?`'fijo',${g.id},'${key}'`:`'var',${g.id}`;
+    return tieneAdjunto(g)
+      ? `<button class="btn btn-ghost btn-sm" onclick="verArchivo(${ref})">📎 Ver boleta</button>`
+      : `<span style="color:var(--text3);font-size:12px;">Sin boleta</span>`;};
+
+  const vacio=(cols,txt)=>`<tr><td colspan="${cols}" style="text-align:center;color:var(--text3);padding:22px;">${txt}</td></tr>`;
+
   return `<div class="page-title">Gastos</div><div class="page-sub">Gastos fijos y variables</div>${monthTabs()}
   <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:16px;">
     <div class="stat-card"><div class="stat-label">🔒 Gastos Fijos</div><div class="stat-value small">${fmt(tF)}</div></div>
-    <div class="stat-card"><div class="stat-label"> Gastos Variables</div><div class="stat-value small">${fmt(tV)}</div></div>
+    <div class="stat-card"><div class="stat-label">🔧 Gastos Variables</div><div class="stat-value small">${fmt(tV)}</div></div>
     <div class="stat-card"><div class="stat-label">💵 Total</div><div class="stat-value small">${fmt(tF+tV)}</div></div>
   </div>
+
   <div class="card mb-16">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><div class="card-title" style="margin:0"> Gastos Fijos (${MESES[currentMonth]})</div><button class="btn btn-primary btn-sm" onclick="openNuevoFijo('${key}')">+ Agregar</button></div>
-    <div class="table-wrap"><table><thead><tr><th>Descripción</th><th>Monto</th><th>Comprobante</th><th></th></tr></thead><tbody>${fm.map(g=>`<tr><td>${g.descripcion}</td><td><strong>${fmt(g.monto)}</strong></td><td>${tieneAdjunto(g)?`<button class="btn btn-ghost btn-sm" onclick="verArchivo('fijo',${g.id},'${key}')">📎 Ver</button>`:'<span style="color:var(--text3)">—</span>'}</td><td style="white-space:nowrap;"><button class="btn btn-warning btn-sm" onclick="adjuntarArchivo('fijo',${g.id},'${key}')">📎</button>${tieneAdjunto(g)?`<button class="btn btn-danger btn-sm" onclick="quitarAdjunto('fijo',${g.id},'${key}')"></button>`:''}<button class="btn btn-danger btn-sm" onclick="delFijo(${g.id},'${key}')">🗑</button></td></tr>`).join('')}${fm.length===0?'<tr><td colspan="4" style="text-align:center;color:var(--text3)">Sin gastos fijos este mes</td></tr>':''}</tbody></table></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div><div class="card-title" style="margin:0">🔒 Gastos Fijos — ${MESES[currentMonth]}</div><div style="font-size:11px;color:var(--text3);margin-top:2px;">${fm.length} registro(s) · ${fmt(tF)}</div></div>
+      <button class="btn btn-primary btn-sm" onclick="openNuevoFijo('${key}')">+ Agregar gasto fijo</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Gasto</th><th>Categoría</th><th style="text-align:right;">Monto</th><th>Comprobante</th><th style="text-align:right;">Acciones</th></tr></thead>
+      <tbody>${fm.map(g=>`<tr>
+        <td><strong style="font-weight:600;">${g.descripcion}</strong></td>
+        <td>${badgeCat(g)}</td>
+        <td style="text-align:right;white-space:nowrap;"><strong>${fmt(g.monto)}</strong></td>
+        <td>${celdaComprobante(g,'fijo')}</td>
+        <td>${acciones(g,'fijo')}</td>
+      </tr>`).join('')||vacio(5,'Sin gastos fijos este mes')}</tbody>
+    </table></div>
   </div>
+
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><div class="card-title" style="margin:0">🔧 Gastos Variables — ${MESES[currentMonth]}</div><button class="btn btn-success btn-sm" onclick="openNuevoVariable()">+ Agregar</button></div>
-    <div class="table-wrap"><table><thead><tr><th>Descripción</th><th>Pago</th><th>Boleta</th><th>Monto</th><th>Comprobante</th><th></th></tr></thead><tbody>${va.map(g=>`<tr><td>${g.descripcion}</td><td><span class="badge badge-orange">${g.tipoPago}</span></td><td style="font-size:11px;color:var(--text3)">${g.boleta||'—'}</td><td><strong>${fmt(g.monto)}</strong></td><td>${tieneAdjunto(g)?`<button class="btn btn-ghost btn-sm" onclick="verArchivo('var',${g.id})">📎 Ver</button>`:'<span style="color:var(--text3)">—</span>'}</td><td style="white-space:nowrap;"><button class="btn btn-warning btn-sm" onclick="adjuntarArchivo('var',${g.id})">📎</button>${tieneAdjunto(g)?`<button class="btn btn-danger btn-sm" onclick="quitarAdjunto('var',${g.id})">✕</button>`:''}<button class="btn btn-danger btn-sm" onclick="delVariable(${g.id})"></button></td></tr>`).join('')}${va.length===0?`<tr><td colspan="6" style="text-align:center;color:var(--text3)">Sin gastos variables en ${MESES[currentMonth]}</td></tr>`:''}</tbody></table></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div><div class="card-title" style="margin:0">🔧 Gastos Variables — ${MESES[currentMonth]}</div><div style="font-size:11px;color:var(--text3);margin-top:2px;">${va.length} registro(s) · ${fmt(tV)}</div></div>
+      <button class="btn btn-success btn-sm" onclick="openNuevoVariable()">+ Agregar gasto variable</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Gasto</th><th>Categoría</th><th>Pago</th><th>N° Boleta</th><th style="text-align:right;">Monto</th><th>Comprobante</th><th style="text-align:right;">Acciones</th></tr></thead>
+      <tbody>${va.map(g=>`<tr>
+        <td><strong style="font-weight:600;">${g.descripcion}</strong></td>
+        <td>${badgeCat(g)}</td>
+        <td><span class="badge badge-orange">${g.tipoPago||'—'}</span></td>
+        <td style="font-size:12px;color:var(--text3);">${g.boleta||'—'}</td>
+        <td style="text-align:right;white-space:nowrap;"><strong>${fmt(g.monto)}</strong></td>
+        <td>${celdaComprobante(g,'var')}</td>
+        <td>${acciones(g,'var')}</td>
+      </tr>`).join('')||vacio(7,`Sin gastos variables en ${MESES[currentMonth]}`)}</tbody>
+    </table></div>
   </div>`;
 }
 
 function openNuevoFijo(key){
   document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-title">Nuevo Gasto Fijo</div>
-  <div class="form-row"><div><label class="fl">Descripción</label><input class="fi" id="gf-d"/></div></div>
+  <div class="form-row"><div><label class="fl">Gasto</label>${selectConceptos('gf')}</div></div>
+  <div class="form-row" id="gf-libre" style="display:none;"><div><label class="fl">Describe el gasto</label><input class="fi" id="gf-libre-input" placeholder="Ej: reparación de portón"/></div></div>
+  <div class="form-row" id="gf-cat-wrap" style="display:none;"><div><label class="fl">Categoría</label>${selectCategorias('gf')}
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--text2);cursor:pointer;"><input type="checkbox" id="gf-recordar" checked style="width:16px;height:16px;"/>Guardar este gasto en la lista para próximas veces</label></div></div>
+  ${selectProveedor('gf')}
   <div class="form-row"><div><label class="fl">Monto Mensual ($)</label><input class="fi" id="gf-m" type="number" placeholder="0"/></div></div>
-  <div class="form-row"><label class="fl">Comprobante (opcional)</label><div class="file-drop" onclick="document.getElementById('gf-file').click()"> Adjuntar imagen o PDF</div><input type="file" id="gf-file" accept="image/*,application/pdf" style="display:none" onchange="previewFile(this,'gf-prev')"/><div id="gf-prev"></div></div>
+  <div class="form-row"><label class="fl">Comprobante (opcional)</label><div class="file-drop" onclick="document.getElementById('gf-file').click()">📎 Adjuntar imagen o PDF</div><input type="file" id="gf-file" accept="image/*,application/pdf" style="display:none" onchange="previewFile(this,'gf-prev')"/><div id="gf-prev"></div></div>
   <div style="display:flex;gap:10px;margin-top:10px;"><button class="btn btn-primary" onclick="saveFijo('${key}')">Guardar</button><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button></div></div></div>`;
 }
 
 function saveFijo(key){
-  const d=document.getElementById('gf-d').value.trim();
+  const {descripcion:d,categoria:cat,recordar}=leerConcepto('gf');
   const m=parseInt(document.getElementById('gf-m').value)||0;
-  if(!d||m<=0){showToast('Complete los campos','error');return;}
+  if(!d||m<=0){showToast('Elige el gasto e ingresa el monto','error');return;}
   const f=document.getElementById('gf-file');
-  /* El comprobante va a la rama cbs4_adjuntos; en el gasto solo queda la referencia. */
   const guardar=(extra)=>{
     if(!appData.gastosFijos)appData.gastosFijos={};
     if(!appData.gastosFijos[key])appData.gastosFijos[key]=[];
-    appData.gastosFijos[key].push({id:Date.now(),descripcion:d,monto:m,...extra});
+    appData.gastosFijos[key].push({id:Date.now(),descripcion:d,categoria:cat,monto:m,...proveedorExtra('gf'),...extra});
     savePath('gastosFijos/'+key,appData.gastosFijos[key]);
+    if(recordar)agregarConcepto(d,cat);
     closeModal();renderView();showToast('Gasto fijo agregado ✓','success');
   };
   const p=(a)=>{
@@ -298,6 +359,57 @@ function saveFijo(key){
 }
 
 function delFijo(id,key){if(!appData.gastosFijos||!appData.gastosFijos[key])return;appData.gastosFijos[key]=appData.gastosFijos[key].filter(g=>g.id!=id);savePath('gastosFijos/'+key,appData.gastosFijos[key]);renderView();showToast('Eliminado');}
+
+/* ===== EDITAR UN GASTO =====
+   Permite corregir el concepto, la categoría, el monto y —en los variables— el
+   tipo de pago y el N° de boleta. El comprobante adjunto no se toca aquí: se
+   maneja con los botones de adjuntar/quitar de la tabla.
+   Si el gasto quedó con un nombre que no está en la lista (los antiguos), el
+   select arranca en «Otro…» con ese texto ya cargado. */
+function editarGasto(t,id,key){
+  const g = (t==='fijo')
+    ? ((appData.gastosFijos&&appData.gastosFijos[key])?comoLista(appData.gastosFijos[key]).find(x=>x.id==id):null)
+    : comoLista(appData.gastosVariables).find(x=>x.id==id);
+  if(!g){showToast('No se encontró el gasto','error');return;}
+  const enLista = conceptosDisponibles().some(c=>c.label===g.descripcion);
+  const cat = g.categoria || '';
+  const esVar = t!=='fijo';
+  document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-title">✎ Editar gasto</div>
+  <div class="form-row"><div><label class="fl">Gasto</label>${selectConceptos('ed',enLista?g.descripcion:'__otro__')}</div></div>
+  <div class="form-row" id="ed-libre" style="display:${enLista?'none':'block'};"><div><label class="fl">Describe el gasto</label><input class="fi" id="ed-libre-input" value="${enLista?'':String(g.descripcion||'').replace(/"/g,'&quot;')}"/></div></div>
+  <div class="form-row" id="ed-cat-wrap" style="display:${enLista?'none':'block'};"><div><label class="fl">Categoría</label>${selectCategorias('ed',cat||'Otros')}
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--text2);cursor:pointer;"><input type="checkbox" id="ed-recordar" style="width:16px;height:16px;"/>Guardar este gasto en la lista para próximas veces</label></div></div>
+  ${selectProveedor('ed',g.proveedorId)}
+  <div class="form-row${esVar?' form-row-2':''}">${esVar?`<div><label class="fl">Tipo de Pago</label><select class="fi" id="ed-tp">${['Efectivo','Transferencia','Cheque'].map(x=>`<option ${g.tipoPago===x?'selected':''}>${x}</option>`).join('')}</select></div>`:''}<div><label class="fl">Monto ($)</label><input class="fi" id="ed-m" type="number" value="${g.monto||0}"/></div></div>
+  ${esVar?`<div class="form-row"><div><label class="fl">N° Boleta (opcional)</label><input class="fi" id="ed-b" value="${String(g.boleta||'').replace(/"/g,'&quot;')}"/></div></div>`:''}
+  <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">El comprobante adjunto no se modifica desde aquí.</div>
+  <div style="display:flex;gap:10px;"><button class="btn btn-primary" onclick="guardarEdicionGasto('${t}',${id},'${key||''}')">Guardar cambios</button><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button></div></div></div>`;
+  /* si arranca en «Otro…», la categoría guardada manda sobre la sugerida */
+  if(!enLista){const c=document.getElementById('ed-cat'); if(c&&cat)c.value=cat;}
+}
+
+function guardarEdicionGasto(t,id,key){
+  const {descripcion:d,categoria:cat,recordar}=leerConcepto('ed');
+  const m=parseInt(document.getElementById('ed-m').value)||0;
+  if(!d||m<=0){showToast('Elige el gasto e ingresa el monto','error');return;}
+  const esVar = t!=='fijo';
+  const lista = esVar ? comoLista(appData.gastosVariables)
+                      : comoLista((appData.gastosFijos||{})[key]);
+  const g = lista.find(x=>x.id==id);
+  if(!g){showToast('No se encontró el gasto','error');return;}
+  g.descripcion=d;
+  g.categoria=cat;
+  g.monto=m;
+  {const pv=leerProveedor('ed');if(pv)g.proveedorId=pv;else delete g.proveedorId;}
+  if(esVar){
+    const tp=document.getElementById('ed-tp'); if(tp)g.tipoPago=tp.value;
+    const b=document.getElementById('ed-b');  if(b) g.boleta=b.value.trim();
+  }
+  if(esVar){appData.gastosVariables=lista;savePath('gastosVariables',lista);}
+  else{appData.gastosFijos[key]=lista;savePath('gastosFijos/'+key,lista);}
+  if(recordar)agregarConcepto(d,cat);
+  closeModal();renderView();showToast('Gasto actualizado ✓','success');
+}
 
 function quitarAdjunto(t,id,key){
 if(!confirm('¿Quitar el comprobante adjunto?'))return;
@@ -316,7 +428,11 @@ renderView();showToast('Adjunto quitado ✓','success');
 function openNuevoVariable(){
   const {currentYear,currentMonth}=state;
   document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-title">Nuevo Gasto Variable — ${MESES[currentMonth]}</div>
-  <div class="form-row"><div><label class="fl">Descripción</label><input class="fi" id="gv-d"/></div></div>
+  <div class="form-row"><div><label class="fl">Gasto</label>${selectConceptos('gv')}</div></div>
+  <div class="form-row" id="gv-libre" style="display:none;"><div><label class="fl">Describe el gasto</label><input class="fi" id="gv-libre-input" placeholder="Ej: reparación de portón"/></div></div>
+  <div class="form-row" id="gv-cat-wrap" style="display:none;"><div><label class="fl">Categoría</label>${selectCategorias('gv')}
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--text2);cursor:pointer;"><input type="checkbox" id="gv-recordar" checked style="width:16px;height:16px;"/>Guardar este gasto en la lista para próximas veces</label></div></div>
+  ${selectProveedor('gv')}
   <div class="form-row form-row-2"><div><label class="fl">Tipo de Pago</label><select class="fi" id="gv-t"><option>Efectivo</option><option>Transferencia</option><option>Cheque</option></select></div><div><label class="fl">Monto ($)</label><input class="fi" id="gv-m" type="number" placeholder="0"/></div></div>
   <div class="form-row"><div><label class="fl">N° Boleta (opcional)</label><input class="fi" id="gv-b"/></div></div>
   <div class="form-row"><label class="fl">Comprobante (opcional)</label><div class="file-drop" onclick="document.getElementById('gv-file').click()">📎 Adjuntar imagen o PDF</div><input type="file" id="gv-file" accept="image/*,application/pdf" style="display:none" onchange="previewFile(this,'gv-prev')"/><div id="gv-prev"></div></div>
@@ -324,17 +440,17 @@ function openNuevoVariable(){
 }
 
 function saveVariable(a,m){
-  const d=document.getElementById('gv-d').value.trim();
+  const {descripcion:d,categoria:cat,recordar}=leerConcepto('gv');
   const tp=document.getElementById('gv-t').value;
   const m2=parseInt(document.getElementById('gv-m').value)||0;
   const b=document.getElementById('gv-b').value.trim();
-  if(!d||m2<=0){showToast('Complete los campos','error');return;}
+  if(!d||m2<=0){showToast('Elige el gasto e ingresa el monto','error');return;}
   const f=document.getElementById('gv-file');
-  /* El comprobante va a la rama cbs4_adjuntos; en el gasto solo queda la referencia. */
   const guardar=(extra)=>{
     if(!appData.gastosVariables)appData.gastosVariables=[];
-    appData.gastosVariables.push({id:Date.now(),anio:a,mes:m,descripcion:d,tipoPago:tp,monto:m2,boleta:b,...extra});
+    appData.gastosVariables.push({id:Date.now(),anio:a,mes:m,descripcion:d,categoria:cat,tipoPago:tp,monto:m2,boleta:b,...proveedorExtra('gv'),...extra});
     savePath('gastosVariables',appData.gastosVariables);
+    if(recordar)agregarConcepto(d,cat);
     closeModal();renderView();showToast('Gasto registrado ✓','success');
   };
   const p=(a2)=>{
