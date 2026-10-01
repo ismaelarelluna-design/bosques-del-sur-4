@@ -13,7 +13,7 @@ const db = firebase.database();
 const LOGO_SRC = 'bosques_del_sur_4.png';
 const LOGO_VOUCHER_SRC = 'bosques_del_sur_4_voucher.png';
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const ADMINS = [{u:'I.arelluna',p:'Arelluna_123',rol:'Administrador'},{u:'R.figueroa',p:'Figueroa_123',rol:'Tesorera'},{u:'T.diaz',p:'Diaz_123',rol:'Presidenta'}];
+let ADMINS = []; /* se llena al iniciar sesion desde cbs4_usuarios (ver cargarPerfil) */
 /* ===== CATEGORIAS Y CONCEPTOS DE GASTO =====
    Los gastos se escribian a mano y el mismo concepto terminaba con cuatro
    ortografias distintas ("Pago de servicios", "pago de servicios", "Pgo de
@@ -217,11 +217,14 @@ if(typeof novRefrescarAlerta==='function')novRefrescarAlerta(false);
 }
 else {db.ref('cbs4').set(appData);}
 const overlay=document.getElementById('loading-overlay');
-if(overlay && overlay.style.display!=='none'){
-overlay.style.display='none';
+if(overlay && overlay.style.display!=='none' && !overlay.dataset.pend){
+overlay.dataset.pend='1';
+authListo.then(()=>{
+overlay.style.display='none';delete overlay.dataset.pend;
 if(state.loggedIn||state.isTransparencia){showApp();}
 else{document.getElementById('login-screen').style.display='flex';renderLoginScreen();}
 if(appData.configuracion&&appData.configuracion.tema==='dark'){state.theme='dark';document.documentElement.setAttribute('data-theme','dark');const b=document.getElementById('theme-btn');if(b)b.textContent='☀️';}
+});
 } else if(state.loggedIn||state.isTransparencia){renderView();}
 });
 }
@@ -353,14 +356,80 @@ function isBiometricAvailable(){return window.PublicKeyCredential&&typeof Public
 async function biometricAvailable(){if(!isBiometricAvailable())return false;try{return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();}catch(e){return false;}}
 async function registerBiometric(u){try{const c=new Uint8Array(32);crypto.getRandomValues(c);const uid=new TextEncoder().encode(u);await navigator.credentials.create({publicKey:{challenge:c,rp:{name:'Bosques del Sur 4',id:location.hostname},user:{id:uid,name:u,displayName:u},pubKeyCredParams:[{alg:-7,type:'public-key'}],authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required'},timeout:60000}});localStorage.setItem('cbs4_biometric_enabled',u);showToast('Huella registrada ✓','success');return true;}catch(e){return false;}}
 async function verifyBiometric(){const u=localStorage.getItem('cbs4_biometric_enabled');if(!u)return null;try{const c=new Uint8Array(32);crypto.getRandomValues(c);await navigator.credentials.get({publicKey:{challenge:c,timeout:60000,userVerification:'required',rpId:location.hostname}});return u;}catch(e){return null;}}
-async function doLogin(){const u=document.getElementById('usr').value.trim();const p=document.getElementById('pwd').value;if(ADMINS.some(a=>a.u===u&&a.p===p)){saveSession(u);state.loggedIn=true;state.isTransparencia=false;showApp();const ok=await biometricAvailable();const be=localStorage.getItem('cbs4_biometric_enabled');if(ok&&!be)setTimeout(()=>offerBiometric(u),800);}else{document.getElementById('login-err').textContent='Credenciales incorrectas.';}}
+/* ===== Autenticacion con Firebase Authentication =====
+   Las contrasenas ya NO estan en el codigo: viven en Firebase Authentication (cifradas).
+   El rango de cada usuario esta en cbs4_usuarios/<uid> = {email, rol, activo}. */
+const ROLES_VALIDOS=['Administrador','Tesorera','Presidenta'];
+let authListoResolver=null;
+const authListo=new Promise(r=>{authListoResolver=r;});
+function emailDe(u){u=String(u||'').trim().toLowerCase();return u.indexOf('@')>=0?u:u+'@bds4.cl';}
+function nombreCorto(email){const l=String(email||'').split('@')[0];return l?l.charAt(0).toUpperCase()+l.slice(1):'';}
+function authUsuarioActual(){try{return firebase.auth().currentUser;}catch(e){return null;}}
+/* Lee el rango del usuario. Devuelve el nombre corto (ej. "I.arelluna") o null si no tiene rango / esta desactivado. */
+async function cargarPerfil(user){
+ const snap=await db.ref('cbs4_usuarios/'+user.uid).once('value');const v=snap.val();
+ if(!v||v.activo===false||ROLES_VALIDOS.indexOf(v.rol)<0)return null;
+ const u=nombreCorto(user.email);
+ ADMINS=[{u,rol:v.rol,uid:user.uid,email:user.email}];
+ try{const all=(await db.ref('cbs4_usuarios').once('value')).val()||{};
+  const lista=Object.keys(all).map(k=>({u:nombreCorto(all[k].email),rol:all[k].rol,uid:k,email:all[k].email})).filter(a=>a.u&&ROLES_VALIDOS.indexOf(a.rol)>=0);
+  if(lista.some(a=>a.uid===user.uid))ADMINS=lista;}catch(e){/* sin permiso para listar: basta con el usuario actual */}
+ return u;
+}
+function initAuth(){
+ let primera=true;
+ const fin=()=>{if(authListoResolver){authListoResolver();authListoResolver=null;}};
+ setTimeout(fin,5000);
+ try{
+  firebase.auth().onAuthStateChanged(async user=>{
+   /* Solo la primera notificacion restaura la sesion; el inicio de sesion manual lo gestiona doLogin. */
+   if(primera){primera=false;
+    try{
+     const p=new URLSearchParams(window.location.search);
+     if(user&&p.get('vista')!=='transparencia'){
+      if(!checkSession()){await firebase.auth().signOut();}
+      else{const n=await cargarPerfil(user);if(n){state.loggedIn=true;state.isTransparencia=false;}else{await firebase.auth().signOut();clearSession();}}
+     }else if(!user){clearSession();}
+    }catch(e){console.error('auth',e);}
+    fin();
+   }
+  });
+ }catch(e){console.error('auth init',e);fin();}
+}
+function loginError(msg){const e=document.getElementById('login-err');if(e)e.textContent=msg||'';const c=document.querySelector('.login-card');if(c&&msg){c.classList.remove('shake');void c.offsetWidth;c.classList.add('shake');}}
+function loginBusy(b){const btn=document.getElementById('login-btn');if(!btn)return;btn.disabled=!!b;btn.classList.toggle('busy',!!b);}
+function togglePwd(){const i=document.getElementById('pwd'),b=document.getElementById('pwd-eye');if(!i)return;const ver=i.type==='password';i.type=ver?'text':'password';if(b){b.classList.toggle('on',ver);b.setAttribute('aria-label',ver?'Ocultar contraseña':'Mostrar contraseña');}}
+function msgErrorAuth(code){
+ if(/invalid-credential|wrong-password|user-not-found|invalid-email|missing-password/.test(code||''))return 'Usuario o contraseña incorrectos.';
+ if(code==='auth/too-many-requests')return 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.';
+ if(code==='auth/network-request-failed')return 'Sin conexión. Revisa tu internet.';
+ if(code==='auth/operation-not-allowed')return 'El acceso con correo no está habilitado en Firebase.';
+ if(code==='auth/user-disabled')return 'Este usuario está deshabilitado.';
+ return 'No se pudo iniciar sesión. Inténtalo otra vez.';
+}
+async function doLogin(){
+ const ue=document.getElementById('usr'),pe=document.getElementById('pwd');
+ const raw=ue.value.trim(),p=pe.value;loginError('');
+ if(!raw||!p){loginError('Ingresa usuario y contraseña.');return;}
+ loginBusy(true);
+ try{
+  const cred=await firebase.auth().signInWithEmailAndPassword(emailDe(raw),p);
+  const u=await cargarPerfil(cred.user);
+  if(!u){await firebase.auth().signOut();loginBusy(false);loginError('Tu usuario no tiene rango asignado o está desactivado.');return;}
+  pe.value='';saveSession(u);state.loggedIn=true;state.isTransparencia=false;
+  const ls=document.getElementById('login-screen');ls.classList.add('lg-out');
+  await new Promise(r=>setTimeout(r,320));
+  ls.classList.remove('lg-out');loginBusy(false);showApp();
+  const ok=await biometricAvailable();const be=localStorage.getItem('cbs4_biometric_enabled');if(ok&&!be)setTimeout(()=>offerBiometric(u),800);
+ }catch(e){loginBusy(false);loginError(msgErrorAuth(e&&e.code));}
+}
 function offerBiometric(u){document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open"><div class="modal" style="text-align:center;"><div style="font-size:48px;margin-bottom:12px;">👆</div><div class="modal-title" style="text-align:center;">¿Activar acceso con huella?</div><p style="font-size:13px;color:var(--text3);margin-bottom:20px;">La próxima vez podrás entrar usando tu huella digital.</p><div style="display:flex;gap:10px;justify-content:center;"><button class="btn btn-primary" onclick="activarBiometric('${u}')">👆 Activar huella</button><button class="btn btn-ghost" onclick="closeModal()">Ahora no</button></div></div></div>`;}
 async function activarBiometric(u){closeModal();showToast('Escanea tu huella...','');await registerBiometric(u);}
-async function loginConHuella(){const u=localStorage.getItem('cbs4_biometric_enabled');if(!u)return;if(!ADMINS.some(a=>a.u===u)){localStorage.removeItem('cbs4_biometric_enabled');renderLoginScreen();showToast('Credenciales actualizadas: usa tu contraseña','error');return;}showToast('Verifica tu identidad...','');const r=await verifyBiometric();if(r){saveSession(r);state.loggedIn=true;state.isTransparencia=false;showApp();showToast('Bienvenido '+r+' ✓','success');}else{showToast('Verificación fallida','error');}}
+async function loginConHuella(){const u=localStorage.getItem('cbs4_biometric_enabled');const au=authUsuarioActual();if(!u||!au||nombreCorto(au.email)!==u){localStorage.removeItem('cbs4_biometric_enabled');renderLoginScreen();showToast('Ingresa con tu contraseña','error');return;}showToast('Verifica tu identidad...','');const r=await verifyBiometric();if(r){const n=await cargarPerfil(au);if(!n){showToast('Usuario sin rango asignado','error');return;}saveSession(n);state.loggedIn=true;state.isTransparencia=false;showApp();showToast('Bienvenido '+n+' ✓','success');}else{showToast('Verificación fallida','error');}}
 function enterTransparencia(){state.isTransparencia=true;state.loggedIn=false;state.currentView='reportes';showApp();}
 function backToLogin(){state.isTransparencia=false;state.loggedIn=false;document.getElementById('app').style.display='none';document.getElementById('login-screen').style.display='flex';renderLoginScreen();}
-function doLogout(){clearSession();backToLogin();}
-function showApp(){document.getElementById('login-screen').style.display='none';document.getElementById('app').style.display='flex';document.getElementById('transp-banner-el').style.display=state.isTransparencia?'flex':'none';const c=(ADMINS.find(a=>a.u===checkSession())||{}).rol||'Admin';document.getElementById('badge-el').className=state.isTransparencia?'badge-view':'badge-admin';document.getElementById('badge-el').textContent=state.isTransparencia?'Solo Lectura':c;document.getElementById('logout-btn').style.display=state.isTransparencia?'none':'block';const ys=document.getElementById('year-sel');ys.innerHTML=YEARS.map(y=>`<option value="${y}" ${y===state.currentYear?'selected':''}>${y}</option>`).join('');renderSidebar();renderBNav();renderView();if(!state.isTransparencia&&typeof programarRespaldoAutomatico==='function')programarRespaldoAutomatico();if(!state.isTransparencia&&typeof novRefrescarAlerta==='function')novRefrescarAlerta(true);}
+function doLogout(){clearSession();try{firebase.auth().signOut();}catch(e){}ADMINS=[];state.loggedIn=false;backToLogin();}
+function showApp(){document.getElementById('login-screen').style.display='none';document.getElementById('app').style.display='flex';{const ap=document.getElementById('app');ap.classList.remove('app-enter');void ap.offsetWidth;ap.classList.add('app-enter');}document.getElementById('transp-banner-el').style.display=state.isTransparencia?'flex':'none';const c=(ADMINS.find(a=>a.u===checkSession())||{}).rol||'Admin';document.getElementById('badge-el').className=state.isTransparencia?'badge-view':'badge-admin';document.getElementById('badge-el').textContent=state.isTransparencia?'Solo Lectura':c;document.getElementById('logout-btn').style.display=state.isTransparencia?'none':'block';const ys=document.getElementById('year-sel');ys.innerHTML=YEARS.map(y=>`<option value="${y}" ${y===state.currentYear?'selected':''}>${y}</option>`).join('');renderSidebar();renderBNav();renderView();if(!state.isTransparencia&&typeof programarRespaldoAutomatico==='function')programarRespaldoAutomatico();if(!state.isTransparencia&&typeof novRefrescarAlerta==='function')novRefrescarAlerta(true);}
 const VIEWS_ADMIN=[{id:'dashboard',icon:'🏠',label:'Panel Central'},{id:'gastoComun',icon:'💳',label:'Gasto Común'},{id:'ingresosExtra',icon:'➕',label:'Ingresos Extras'},{id:'egresos',icon:'💸',label:'Gastos'},{id:'multas',icon:'⚖️',label:'Multas'},{id:'mantenciones',icon:'🔧',label:'Mantenciones'},{id:'proveedores',icon:'🤝',label:'Proveedores'},{id:'novedades',icon:'📨',label:'Novedades'},{id:'certificados',icon:'📜',label:'Certificados'},{id:'departamentos',icon:'🏘',label:'Departamentos'},{id:'recordatorios',icon:'⚠️',label:'Morosidad'},{id:'reportes',icon:'📊',label:'Transparencia'},{id:'config',icon:'⚙️',label:'Configuración'},{id:'formularios',icon:'📝',label:'Formularios'},{id:'auditoria',icon:'🕵️',label:'Registro de cambios'}];
 /* Menu agrupado en tarjetas: una sola fuente para la barra lateral y el cajon movil. */
 const NAV_GROUPS=[
@@ -386,7 +455,7 @@ const s=document.getElementById('drawer-sub');if(s)s.textContent=isAdmin?'Panel 
 function navDrawerItem(id,icon,label){return `<div class="drawer-nav-item ${state.currentView===id?'active':''}" onclick="goTo('${id}');closeDrawer()"><span class="drawer-nav-icon">${icon}</span>${label}</div>`;}
 function openDrawer(){try{const o=document.getElementById('drawer-overlay');const d=document.getElementById('drawer');const l=document.getElementById('drawer-logo');if(!o||!d)return;if(l)l.src=LOGO_SRC;renderDrawerNav();o.classList.add('open');d.classList.add('open');document.body.style.overflow='hidden';}catch(e){console.error(e);}}
 function closeDrawer(){const o=document.getElementById('drawer-overlay');const d=document.getElementById('drawer');if(o)o.classList.remove('open');if(d)d.classList.remove('open');document.body.style.overflow='';}
-function goTo(v){state.currentView=v;renderSidebar();renderBNav();renderView();window.scrollTo(0,0);setTimeout(()=>{window.scrollTo(0,0);},100);}
+function goTo(v){state.currentView=v;renderSidebar();renderBNav();renderView();{const m=document.getElementById('main-content');if(m){m.classList.remove('view-enter');void m.offsetWidth;m.classList.add('view-enter');}}window.scrollTo(0,0);setTimeout(()=>{window.scrollTo(0,0);},100);}
 function changeYear(y){state.currentYear=parseInt(y);renderView();}
 function setMonth(m){state.currentMonth=m;renderView();}
 function monthTabs(){return '<div class="month-tabs">'+MESES.map((m,i)=>`<div class="month-tab ${i===state.currentMonth?'active':''}" onclick="setMonth(${i})">${m.substring(0,3)}</div>`).join('')+'</div>';}

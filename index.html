@@ -12,6 +12,7 @@
 <title>Condominio Bosques del Sur 4</title>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -19,22 +20,27 @@
 <canvas id="bg-particles"></canvas>
 <div id="loading-overlay" class="loading-overlay"><div class="spinner"></div><div class="loading-text">Conectando con Firebase...</div></div>
 <div id="login-screen">
+<div class="login-bg" aria-hidden="true"></div>
+<div class="login-blobs" aria-hidden="true"><i></i><i></i><i></i></div>
 <div class="login-card">
 <div class="logo-circ"><img id="logo-login" alt="Logo"/></div>
 <div class="login-title">CONDOMINIO<br>BOSQUES DEL SUR 4</div>
 <div class="login-sub" id="login-sub-text">Panel de Administración</div>
-<div id="login-form-area">
-<label class="login-label">Usuario</label>
-<input class="login-input" id="usr" type="text" placeholder="I.arelluna" onkeydown="if(event.key==='Enter')doLogin()"/>
-<label class="login-label">Contraseña</label>
-<input class="login-input" id="pwd" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"/>
-<button class="login-btn" onclick="doLogin()">Ingresar al Sistema</button>
-</div>
+<form id="login-form-area" onsubmit="doLogin();return false;" novalidate>
+<label class="login-label" for="usr">Usuario</label>
+<div class="login-field"><svg class="lf-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+<input id="usr" name="username" type="text" autocomplete="username" inputmode="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="tu usuario"/></div>
+<label class="login-label" for="pwd">Contraseña</label>
+<div class="login-field"><svg class="lf-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+<input id="pwd" name="password" type="password" autocomplete="current-password" placeholder="••••••••"/>
+<button type="button" class="lf-eye" id="pwd-eye" onclick="togglePwd()" aria-label="Mostrar contraseña"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path class="slash" d="M4 4l16 16"/></svg></button></div>
+<button class="login-btn" id="login-btn" type="submit"><span class="lb-txt">Ingresar al Sistema</span><span class="lb-spin" aria-hidden="true"></span></button>
+</form>
 <div id="biometric-area" style="display:none;margin-bottom:14px;">
 <button class="login-btn" style="font-size:16px;" onclick="loginConHuella()">👆 Ingresar con huella</button>
 <div style="margin-top:10px;"><a href="#" style="color:rgba(255,255,255,.7);font-size:12px;" onclick="showPasswordForm();return false;">Usar contraseña</a></div>
 </div>
-<div class="login-error" id="login-err"></div>
+<div class="login-error" id="login-err" role="alert" aria-live="polite"></div>
 <div class="transp-link"><a href="#" onclick="enterTransparencia();return false;">👁 Vista Transparencia (residentes)</a></div>
 </div>
 </div>

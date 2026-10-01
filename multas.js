@@ -81,9 +81,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 document.getElementById('logo-login').src=LOGO_SRC;
 document.getElementById('topbar-logo').src=LOGO_SRC;
 initFirebase();
+initAuth();
 initParticles();
-const su=checkSession();
-if(su&&ADMINS.some(a=>a.u===su)){state.loggedIn=true;state.isTransparencia=false;}
 const p=new URLSearchParams(window.location.search);
 if(p.get('vista')==='transparencia'){state.isTransparencia=true;state.loggedIn=false;state.currentView='reportes';}
 setTimeout(()=>{const ov=document.getElementById('loading-overlay');if(ov&&ov.style.display!=='none'){ov.style.display='none';if(state.loggedIn||state.isTransparencia){showApp();}else{const ls=document.getElementById('login-screen');if(ls){ls.style.display='flex';renderLoginScreen();}}}},6000);
