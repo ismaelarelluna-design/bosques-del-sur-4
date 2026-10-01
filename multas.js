@@ -82,6 +82,7 @@ document.getElementById('logo-login').src=LOGO_SRC;
 document.getElementById('topbar-logo').src=LOGO_SRC;
 initFirebase();
 initAuth();
+authListo.then(()=>{if(state.loggedIn){iniciarDatosPrivados().then(ok=>{if(!ok){state.loggedIn=false;try{firebase.auth().signOut();}catch(e){}clearSession();iniciarDatosPublicos();}});}else{iniciarDatosPublicos();}});
 initParticles();
 const p=new URLSearchParams(window.location.search);
 if(p.get('vista')==='transparencia'){state.isTransparencia=true;state.loggedIn=false;state.currentView='reportes';}

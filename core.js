@@ -187,6 +187,12 @@ return out;
 }
 function initFirebase(){
 db.ref('.info/connected').on('value', snap => {state.connected = snap.val() === true;const dot=document.getElementById('sync-dot');const txt=document.getElementById('sync-text');if(dot&&txt){dot.className='sync-dot '+(state.connected?'':'off');txt.textContent=state.connected?'En línea':'Sin conexión';}});
+}
+/* Datos PRIVADOS (cbs4): solo con sesion y rango. Devuelve Promise<boolean>. */
+function iniciarDatosPrivados(){
+detenerDatos();modoDatos='privado';
+return new Promise(resolve=>{
+let primera=true;
 firebaseListener = db.ref('cbs4').on('value', snap => {
 const val = snap.val();
 if(val){
@@ -214,8 +220,9 @@ novedades: comoListaConId(val.novedades)};
 if(typeof guardarInstantaneaLocal==='function')guardarInstantaneaLocal(val);
 if(typeof programarRespaldoAutomatico==='function')programarRespaldoAutomatico();
 if(typeof novRefrescarAlerta==='function')novRefrescarAlerta(false);
+programarPublicacion();
 }
-else {db.ref('cbs4').set(appData);}
+else if(!appData.__publico){db.ref('cbs4').set(appData);}
 const overlay=document.getElementById('loading-overlay');
 if(overlay && overlay.style.display!=='none' && !overlay.dataset.pend){
 overlay.dataset.pend='1';
@@ -226,7 +233,81 @@ else{document.getElementById('login-screen').style.display='flex';renderLoginScr
 if(appData.configuracion&&appData.configuracion.tema==='dark'){state.theme='dark';document.documentElement.setAttribute('data-theme','dark');const b=document.getElementById('theme-btn');if(b)b.textContent='☀️';}
 });
 } else if(state.loggedIn||state.isTransparencia){renderView();}
+if(primera){primera=false;resolve(true);}
+},err=>{console.error('cbs4:',err);if(primera){primera=false;resolve(false);}});
 });
+}
+/* ===== Transparencia publica =====
+   Los residentes NO leen cbs4 (tiene nombres, telefonos y quien pago). La app de un
+   administrador publica un RESUMEN sin datos personales en cbs4_publico, y las reglas de
+   Firebase dejan ese unico nodo con lectura publica. */
+const PUB_PATH='cbs4_publico';
+let modoDatos=null,_pubTimer=null,_pubHash='';
+function detenerDatos(){
+ if(firebaseListener){try{db.ref(modoDatos==='publico'?PUB_PATH:'cbs4').off('value',firebaseListener);}catch(e){}firebaseListener=null;}
+}
+function construirPublico(){
+ const okK=k=>/^\d{4}-\d{2}$/.test(k);
+ const pagos={};
+ Object.keys(appData.pagos||{}).forEach(k=>{if(!okK(k))return;let e=0,t=0;
+  Object.values(appData.pagos[k]||{}).forEach(v=>{const n=normalizarPago(v);if(n.pagado){if(n.tipo==='efectivo')e++;else t++;}});
+  if(e||t)pagos[k]={e,t};});
+ const item=g=>{const o={id:g.id==null?null:g.id,descripcion:String(g.descripcion||'').slice(0,200),monto:Number(g.monto)||0};
+  if(g.archivoRef){o.archivoRef=String(g.archivoRef);o.archivoNombre=String(g.archivoNombre||'').slice(0,120);}return o;};
+ const gastosFijos={};const gf=appData.gastosFijos||{};
+ Object.keys(gf).forEach(k=>{if(!okK(k))return;const l=comoLista(gf[k]).filter(Boolean).map(item);if(l.length)gastosFijos[k]=l;});
+ return {
+  pagos,gastosFijos,
+  gastosVariables:comoLista(appData.gastosVariables).filter(Boolean).map(g=>({...item(g),anio:Number(g.anio)||0,mes:Number(g.mes)||0})),
+  ingresosExtra:comoLista(appData.ingresosExtra).filter(Boolean).map(g=>({anio:Number(g.anio)||0,mes:Number(g.mes)||0,monto:Number(g.monto)||0})),
+  multasPagadas:comoLista(appData.multas).filter(m=>m&&m.estado==='Pagada').map(m=>({anio:Number(m.anio)||0,mes:Number(m.mes)||0,monto:Number(m.monto)||0,estado:'Pagada'})),
+  gcHistorial:comoLista(appData.gastoComunHistorial).filter(Boolean).map(h=>({desde:String(h.desde||''),valor:Number(h.valor)||0})),
+  tema:(appData.configuracion&&appData.configuracion.tema)==='dark'?'dark':'light'};
+}
+function programarPublicacion(){if(modoDatos!=='privado')return;clearTimeout(_pubTimer);_pubTimer=setTimeout(()=>publicarTransparencia(false),2500);}
+function publicarTransparencia(forzar){
+ try{
+  if(modoDatos!=='privado'||!authUsuarioActual()||appData.__publico)return;
+  const pub=construirPublico();
+  if(!Object.keys(pub.pagos).length&&!Object.keys(pub.gastosFijos).length&&!pub.gastosVariables.length)return;/* no publicar un vacio */
+  const h=JSON.stringify(pub);if(!forzar&&h===_pubHash)return;
+  _pubHash=h;pub.ts=Date.now();
+  return db.ref(PUB_PATH).set(pub).catch(e=>{_pubHash='';console.warn('publico:',e);});
+ }catch(e){console.warn('publico:',e);}
+}
+/* Reconstruye un appData minimo (mismas formas que usa vReportes) desde el resumen publico. */
+function datosDesdePublico(pub){
+ pub=pub||{};const d=defaultData();const pagos={};
+ Object.keys(pub.pagos||{}).forEach(k=>{const p=pub.pagos[k]||{};const o={};
+  for(let i=0;i<(p.e||0);i++)o['e'+i]={pagado:true,tipo:'efectivo'};
+  for(let i=0;i<(p.t||0);i++)o['t'+i]={pagado:true,tipo:'transferencia'};pagos[k]=o;});
+ const gf={};Object.keys(pub.gastosFijos||{}).forEach(k=>{gf[k]=comoLista(pub.gastosFijos[k]);});
+ const hist=comoLista(pub.gcHistorial);
+ return {...d,__publico:true,pagos,gastosFijos:gf,
+  gastosVariables:comoLista(pub.gastosVariables),ingresosExtra:comoLista(pub.ingresosExtra),multas:comoLista(pub.multasPagadas),
+  gastoComunHistorial:hist.length?hist:d.gastoComunHistorial,configuracion:{tema:pub.tema==='dark'?'dark':'light'}};
+}
+function revelarInterfaz(){
+ const overlay=document.getElementById('loading-overlay');
+ if(overlay&&overlay.style.display!=='none'){
+  overlay.style.display='none';
+  if(state.loggedIn||state.isTransparencia){showApp();}
+  else{document.getElementById('login-screen').style.display='flex';renderLoginScreen();}
+  if(appData.configuracion&&appData.configuracion.tema==='dark'){state.theme='dark';document.documentElement.setAttribute('data-theme','dark');const b=document.getElementById('theme-btn');if(b)b.textContent='☀️';}
+  return true;
+ }
+ return false;
+}
+function iniciarDatosPublicos(){
+ detenerDatos();modoDatos='publico';
+ return new Promise(resolve=>{
+  let primera=true;
+  firebaseListener=db.ref(PUB_PATH).on('value',snap=>{
+   appData=datosDesdePublico(snap.val());
+   if(!revelarInterfaz()&&state.isTransparencia)renderView();
+   if(primera){primera=false;resolve(true);}
+  },err=>{console.error('publico:',err);appData=datosDesdePublico(null);revelarInterfaz();if(primera){primera=false;resolve(false);}});
+ });
 }
 function saveData(){db.ref('cbs4').set(appData).catch(e=>showToast('Error al guardar: '+e.message,'error'));}
 /* Escribe SOLO una rama de cbs4 en lugar de reemplazar el arbol completo.
@@ -416,6 +497,8 @@ async function doLogin(){
   const cred=await firebase.auth().signInWithEmailAndPassword(emailDe(raw),p);
   const u=await cargarPerfil(cred.user);
   if(!u){await firebase.auth().signOut();loginBusy(false);loginError('Tu usuario no tiene rango asignado o está desactivado.');return;}
+  const datosOk=await iniciarDatosPrivados();
+  if(!datosOk){await firebase.auth().signOut();clearSession();iniciarDatosPublicos();loginBusy(false);loginError('No se pudieron cargar los datos (permisos o conexión).');return;}
   pe.value='';saveSession(u);state.loggedIn=true;state.isTransparencia=false;
   const ls=document.getElementById('login-screen');ls.classList.add('lg-out');
   await new Promise(r=>setTimeout(r,320));
@@ -425,10 +508,10 @@ async function doLogin(){
 }
 function offerBiometric(u){document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open"><div class="modal" style="text-align:center;"><div style="font-size:48px;margin-bottom:12px;">👆</div><div class="modal-title" style="text-align:center;">¿Activar acceso con huella?</div><p style="font-size:13px;color:var(--text3);margin-bottom:20px;">La próxima vez podrás entrar usando tu huella digital.</p><div style="display:flex;gap:10px;justify-content:center;"><button class="btn btn-primary" onclick="activarBiometric('${u}')">👆 Activar huella</button><button class="btn btn-ghost" onclick="closeModal()">Ahora no</button></div></div></div>`;}
 async function activarBiometric(u){closeModal();showToast('Escanea tu huella...','');await registerBiometric(u);}
-async function loginConHuella(){const u=localStorage.getItem('cbs4_biometric_enabled');const au=authUsuarioActual();if(!u||!au||nombreCorto(au.email)!==u){localStorage.removeItem('cbs4_biometric_enabled');renderLoginScreen();showToast('Ingresa con tu contraseña','error');return;}showToast('Verifica tu identidad...','');const r=await verifyBiometric();if(r){const n=await cargarPerfil(au);if(!n){showToast('Usuario sin rango asignado','error');return;}saveSession(n);state.loggedIn=true;state.isTransparencia=false;showApp();showToast('Bienvenido '+n+' ✓','success');}else{showToast('Verificación fallida','error');}}
+async function loginConHuella(){const u=localStorage.getItem('cbs4_biometric_enabled');const au=authUsuarioActual();if(!u||!au||nombreCorto(au.email)!==u){localStorage.removeItem('cbs4_biometric_enabled');renderLoginScreen();showToast('Ingresa con tu contraseña','error');return;}showToast('Verifica tu identidad...','');const r=await verifyBiometric();if(r){const n=await cargarPerfil(au);if(!n){showToast('Usuario sin rango asignado','error');return;}if(!(await iniciarDatosPrivados())){showToast('No se pudieron cargar los datos','error');iniciarDatosPublicos();return;}saveSession(n);state.loggedIn=true;state.isTransparencia=false;showApp();showToast('Bienvenido '+n+' ✓','success');}else{showToast('Verificación fallida','error');}}
 function enterTransparencia(){state.isTransparencia=true;state.loggedIn=false;state.currentView='reportes';showApp();}
 function backToLogin(){state.isTransparencia=false;state.loggedIn=false;document.getElementById('app').style.display='none';document.getElementById('login-screen').style.display='flex';renderLoginScreen();}
-function doLogout(){clearSession();try{firebase.auth().signOut();}catch(e){}ADMINS=[];state.loggedIn=false;backToLogin();}
+function doLogout(){clearSession();clearTimeout(_pubTimer);_pubHash='';iniciarDatosPublicos();try{firebase.auth().signOut();}catch(e){}ADMINS=[];state.loggedIn=false;backToLogin();}
 function showApp(){document.getElementById('login-screen').style.display='none';document.getElementById('app').style.display='flex';{const ap=document.getElementById('app');ap.classList.remove('app-enter');void ap.offsetWidth;ap.classList.add('app-enter');}document.getElementById('transp-banner-el').style.display=state.isTransparencia?'flex':'none';const c=(ADMINS.find(a=>a.u===checkSession())||{}).rol||'Admin';document.getElementById('badge-el').className=state.isTransparencia?'badge-view':'badge-admin';document.getElementById('badge-el').textContent=state.isTransparencia?'Solo Lectura':c;document.getElementById('logout-btn').style.display=state.isTransparencia?'none':'block';const ys=document.getElementById('year-sel');ys.innerHTML=YEARS.map(y=>`<option value="${y}" ${y===state.currentYear?'selected':''}>${y}</option>`).join('');renderSidebar();renderBNav();renderView();if(!state.isTransparencia&&typeof programarRespaldoAutomatico==='function')programarRespaldoAutomatico();if(!state.isTransparencia&&typeof novRefrescarAlerta==='function')novRefrescarAlerta(true);}
 const VIEWS_ADMIN=[{id:'dashboard',icon:'🏠',label:'Panel Central'},{id:'gastoComun',icon:'💳',label:'Gasto Común'},{id:'ingresosExtra',icon:'➕',label:'Ingresos Extras'},{id:'egresos',icon:'💸',label:'Gastos'},{id:'multas',icon:'⚖️',label:'Multas'},{id:'mantenciones',icon:'🔧',label:'Mantenciones'},{id:'proveedores',icon:'🤝',label:'Proveedores'},{id:'novedades',icon:'📨',label:'Novedades'},{id:'certificados',icon:'📜',label:'Certificados'},{id:'departamentos',icon:'🏘',label:'Departamentos'},{id:'recordatorios',icon:'⚠️',label:'Morosidad'},{id:'reportes',icon:'📊',label:'Transparencia'},{id:'config',icon:'⚙️',label:'Configuración'},{id:'formularios',icon:'📝',label:'Formularios'},{id:'auditoria',icon:'🕵️',label:'Registro de cambios'}];
 /* Menu agrupado en tarjetas: una sola fuente para la barra lateral y el cajon movil. */
@@ -455,7 +538,7 @@ const s=document.getElementById('drawer-sub');if(s)s.textContent=isAdmin?'Panel 
 function navDrawerItem(id,icon,label){return `<div class="drawer-nav-item ${state.currentView===id?'active':''}" onclick="goTo('${id}');closeDrawer()"><span class="drawer-nav-icon">${icon}</span>${label}</div>`;}
 function openDrawer(){try{const o=document.getElementById('drawer-overlay');const d=document.getElementById('drawer');const l=document.getElementById('drawer-logo');if(!o||!d)return;if(l)l.src=LOGO_SRC;renderDrawerNav();o.classList.add('open');d.classList.add('open');document.body.style.overflow='hidden';}catch(e){console.error(e);}}
 function closeDrawer(){const o=document.getElementById('drawer-overlay');const d=document.getElementById('drawer');if(o)o.classList.remove('open');if(d)d.classList.remove('open');document.body.style.overflow='';}
-function goTo(v){state.currentView=v;renderSidebar();renderBNav();renderView();{const m=document.getElementById('main-content');if(m){m.classList.remove('view-enter');void m.offsetWidth;m.classList.add('view-enter');}}window.scrollTo(0,0);setTimeout(()=>{window.scrollTo(0,0);},100);}
+function goTo(v){if(state.isTransparencia&&v!=='reportes')return;state.currentView=v;renderSidebar();renderBNav();renderView();{const m=document.getElementById('main-content');if(m){m.classList.remove('view-enter');void m.offsetWidth;m.classList.add('view-enter');}}window.scrollTo(0,0);setTimeout(()=>{window.scrollTo(0,0);},100);}
 function changeYear(y){state.currentYear=parseInt(y);renderView();}
 function setMonth(m){state.currentMonth=m;renderView();}
 function monthTabs(){return '<div class="month-tabs">'+MESES.map((m,i)=>`<div class="month-tab ${i===state.currentMonth?'active':''}" onclick="setMonth(${i})">${m.substring(0,3)}</div>`).join('')+'</div>';}
