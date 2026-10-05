@@ -176,6 +176,17 @@ function pdfNotaCaja(c,titulo,texto,color){
  c.y+=h+10;
 }
 
+/* Linea informativa cuando, al emitir, existia un compromiso de pago vigente (compromisos.js).
+   La deuda informada NO se altera: el certificado sigue diciendo que hay deuda. */
+function pdfLineaCompromiso(c,rec){
+ if(!rec.compromiso)return;
+ const t='Compromiso de pago vigente (Folio '+rec.compromiso.folio+'): al '+certFechaLarga(rec.fecha)+' existe un compromiso registrado con fecha límite '+certFechaLarga(rec.compromiso.fechaLimite)+'. La deuda informada se mantiene exigible hasta su pago íntegro y este certificado no la modifica.';
+ const ls=pdfLineas(c,t,{size:8.8,w:PDF_W-PDF_M*2-14});const h=ls.length*11.6+6;
+ pdfAsegurar(c,h+8);pdfRect(c,PDF_M,c.y,2.5,h,'#F59E0B');
+ ls.forEach((l,i)=>pdfTexto(c,l,{x:PDF_M+10,size:8.8,font:c.I,color:'#92400E',y:c.y+10.5+i*11.6,just:i<ls.length-1?PDF_W-PDF_M*2-14:0}));
+ c.y+=h+8;
+}
+
 /* ---------- Certificado de gastos comunes (venta / trámites) ---------- */
 async function pdfCertVenta(rec){
  if(!pdfListo())throw new Error('Librería PDF no disponible');
@@ -195,6 +206,7 @@ async function pdfCertVenta(rec){
   c.y+=2;pdfParrafo(c,'La unidad no registra gastos comunes ni multas pendientes de pago en el período considerado.',{size:10,color:'#374151'});
  }
  if(rec.obs)pdfParrafo(c,'Observación: '+rec.obs,{size:9.5,font:c.I,color:'#374151',despues:8});
+ if(!aldia)pdfLineaCompromiso(c,rec);
  pdfGrilla12(c,rec.meses12);
  pdfSeccion(c,'Información para trámites de compraventa');
  pdfParrafo(c,'Según la Ley N° 21.442 (art. 6), la obligación de pagar los gastos comunes acompaña a la unidad y se transmite a quien la adquiere, incluidas las deudas anteriores; por eso el vendedor debe acreditar su pago al enajenar y el estado de deuda suele declararse en la escritura pública de compraventa. La administración puede emitir certificados de estado de deudas (art. 20 N° 4). Este documento es un resumen informativo de la situación registrada a la fecha de emisión, con vigencia referencial de 30 días. Si el trámite exige un certificado firmado por el administrador, solicítelo al Comité.',{size:9.3,x:PDF_M,lh:13,color:'#1F2937'});
@@ -228,6 +240,7 @@ async function pdfCertMorosidad(rec){
  pdfTexto(c,fmt(rec.total),{size:14,font:c.B,color:PDF_COL.rojo,align:'right',right:PDF_W-PDF_M-16,y:c.y+h-8});
  c.y+=h+10;
  if(rec.obs)pdfParrafo(c,'Observación: '+rec.obs,{size:9.5,font:c.I,color:'#374151',despues:6});
+ pdfLineaCompromiso(c,rec);
  /* 1. detalle */
  pdfSeccion(c,'1. Detalle de la deuda');
  pdfTabla(c,[{t:'N°',w:36},{t:'Concepto',w:PDF_W-PDF_M*2-36-120},{t:'Monto',w:120,align:'right'}],det.map((r,i)=>[String(i+1),r.t,fmt(r.v)]));

@@ -21,7 +21,7 @@ const AUD_SECCIONES={pagos:'Gasto Común',gastosVariables:'Gastos',gastosFijos:'
  ingresosExtra:'Ingresos Extra',multas:'Multas',formularios:'Formulario',departamentos:'Departamentos',
  mantenciones:'Mantenciones',mantencionesHechas:'Mantenciones',gastoComunHistorial:'Configuración',
  configuracion:'Configuración',proveedores:'Proveedores',rubrosProveedor:'Proveedores',
- certificados:'Certificados',novedades:'Novedades'};
+ certificados:'Certificados',novedades:'Novedades',actas:'Actas',compromisos:'Compromisos de pago',convocatorias:'Convocatorias',codigosEstado:'Estado de cuenta'};
 
 /* ---------- copia local de lo que hay en Firebase ---------- */
 let _cbs4Raw=null;
@@ -45,7 +45,7 @@ function rutaSet(obj,ruta,valor){
 /* ---------- descripcion de cambios ---------- */
 function audTitulo(r){
  if(!r||typeof r!=='object')return String(r);
- if(r.folio)return r.folio+(r.depNumero?' · Depto '+r.depNumero:'');
+ if(r.folio)return r.folio+(r.depNumero?' · Depto '+r.depNumero:(r.titulo?' · '+String(r.titulo).slice(0,50):''));
  if(r.mantencionId&&r.periodo){const m=(typeof mantencionPorId==='function')?mantencionPorId(r.mantencionId):null;return 'Realizada: '+(m?m.nombre:'mantención')+' ('+r.periodo+')';}
  if(r.desde&&r.valor!==undefined)return 'Gasto común desde '+r.desde+': '+fmt(r.valor);
  if(r.numero&&!r.descripcion)return 'Depto '+r.numero+(r.representante?' — '+r.representante:'');
@@ -98,7 +98,11 @@ function audDescribir(seg,prev,valor){
  if(rama==='gastosFijos'&&seg.length===2)return audDiffLista(prev,valor,' · fijo '+seg[1]);
  if(['gastosVariables','ingresosExtra','multas','formularios','departamentos','mantenciones','mantencionesHechas','conceptosGasto','gastoComunHistorial'].includes(rama)&&seg.length===1)
   return audDiffLista(prev,valor);
- if(['proveedores','certificados','novedades'].includes(rama)&&seg.length===2)return audDiffRegistro(prev,valor);
+ if(['proveedores','certificados','novedades','actas','compromisos','convocatorias'].includes(rama)&&seg.length===2)return audDiffRegistro(prev,valor);
+ if(rama==='codigosEstado'&&seg.length===2){/* nunca se anota el código en sí */
+  const dep=(appData.departamentos||[]).find(d=>String(d.id)===String(seg[1]));
+  return [{accion:valor?(prev?'regenerar':'crear'):'revocar',detalle:'Código de estado de cuenta — Depto '+(dep?dep.numero:seg[1])+(valor?'':' revocado')}];
+ }
  if(rama==='rubrosProveedor'||rama==='configuracion'){
   const c=(rama==='configuracion')?audCampos(prev,valor):(JSON.stringify(prev)===JSON.stringify(valor)?[]:['lista de rubros']);
   return c.length?[{accion:'editar',detalle:c.slice(0,4).join('; ')}]:[];

@@ -90,6 +90,7 @@ function htmlCertTarjetas(sit){
      <div style="font-size:12px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.dep.representante||'Sin representante')}</div></div>
     <span class="cert-chip ${s.deuda?'deuda':'aldia'}">${s.deuda?'Con deuda':'Al día'}</span></div>
    <div class="cert-det"><span>${esc(det)}</span>${s.deuda?`<strong>${fmt(s.total)}</strong>`:''}</div>
+   ${s.deuda&&typeof compVigenteDe==='function'&&compVigenteDe(s.dep.id)?`<div style="font-size:11px;color:#B45309;margin-top:6px">🤝 Compromiso de pago vigente hasta ${esc(actaFechaCorta(compVigenteDe(s.dep.id).fechaLimite))}</div>`:''}
    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
     <button class="btn btn-primary btn-sm" onclick="openEmitirCert('${esc(s.dep.id)}','venta')">📜 Certificado para venta</button>
     ${s.deuda?`<button class="btn btn-danger btn-sm" onclick="openEmitirCert('${esc(s.dep.id)}','morosidad')">⚠️ Certificado de morosidad</button>`:''}
@@ -166,6 +167,8 @@ async function emitirCert(depId,tipo){
   const rec={id,tipo,plazoDias,ventana:certVentana(),folio:pref+anio+'-'+String(n).padStart(3,'0'),anio,n,depId:s.dep.id,depNumero:s.dep.numero,representante:String(s.dep.representante||'').trim(),
    fecha:hoy,ts:Date.now(),situacion:s.deuda?'deuda':'aldia',total:s.total,detalle:certDetalleDe(s.m),meses12:certUltimos12(s.dep),
    desde:keys.length?keys[0]:'',corte:keys.length?keys[keys.length-1]:'',obs,emitidoPor:u,rol:adm.rol||''};
+  const cv=(typeof compVigenteDe==='function')?compVigenteDe(s.dep.id):null;
+  if(cv)rec.compromiso={folio:cv.folio,fechaLimite:cv.fechaLimite,monto:cv.monto};
   appData.certificados=certificados().concat([rec]);
   await savePath('certificados/'+id,rec);
   closeModal();

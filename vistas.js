@@ -135,6 +135,7 @@ function confirmarPago(key,id,tipo){
 
 function vDepartamentos(){
   return `<div class="page-title">Departamentos</div><div class="page-sub">18 unidades — Datos de representantes</div>
+  ${typeof htmlEstadoPanel==='function'?htmlEstadoPanel():''}
   <div class="card"><div class="table-wrap"><table><thead><tr><th>Departamento</th><th>Representante</th><th>Contacto</th><th></th></tr></thead>
   <tbody>${(appData.departamentos||[]).map(d=>`<tr><td><strong style="color:var(--text)">${d.numero}</strong></td><td>${d.representante||'<span style="color:var(--text3)">Sin asignar</span>'}</td><td>${d.contacto||'—'}</td><td><button class="btn btn-primary btn-sm" onclick="openDepto(${d.id})">Editar</button></td></tr>`).join('')}</tbody></table></div></div>`;
 }

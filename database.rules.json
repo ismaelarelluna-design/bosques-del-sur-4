@@ -1,0 +1,51 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "cbs4": {
+      ".read": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      ".write": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      "novedades": {
+        "$id": {
+          ".write": "!data.exists() && newData.exists() && newData.child('origen').val() === 'formulario' && newData.child('ts').isNumber() && newData.child('descripcion').isString() && newData.child('descripcion').val().length <= 4000 && !newData.child('estado').exists() && !newData.child('historial').exists() && (!newData.child('nombre').exists() || (newData.child('nombre').isString() && newData.child('nombre').val().length <= 300)) && (!newData.child('depto').exists() || (newData.child('depto').isString() && newData.child('depto').val().length <= 300)) && (!newData.child('contacto').exists() || (newData.child('contacto').isString() && newData.child('contacto').val().length <= 300)) && (!newData.child('tipo').exists() || (newData.child('tipo').isString() && newData.child('tipo').val().length <= 300)) && (!newData.child('ubicacion').exists() || (newData.child('ubicacion').isString() && newData.child('ubicacion').val().length <= 300))"
+        }
+      }
+    },
+    "cbs4_usuarios": {
+      ".read": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid"
+      }
+    },
+    "cbs4_publico": {
+      ".read": true,
+      ".write": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')"
+    },
+    "cbs4_adjuntos": {
+      ".read": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      ".write": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      "$id": {
+        ".read": true
+      }
+    },
+    "cbs4_auditoria": {
+      ".read": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      ".write": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')"
+    },
+    "cbs4_respaldos": {
+      ".read": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      ".write": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')"
+    },
+    "cbs4_respaldos_meta": {
+      ".read": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      ".write": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')"
+    },
+    "cbs4_estado": {
+      ".read": false,
+      ".write": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      "$codigo": {
+        ".read": true
+      }
+    }
+  }
+}

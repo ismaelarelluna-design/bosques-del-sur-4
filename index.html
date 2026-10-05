@@ -42,8 +42,12 @@
 </div>
 <div class="login-error" id="login-err" role="alert" aria-live="polite"></div>
 <div class="transp-link"><a href="#" onclick="enterTransparencia();return false;">👁 Vista Transparencia (residentes)</a></div>
+<div class="transp-link" style="margin-top:6px"><a href="#" onclick="estLoginAbrir();return false;">🔎 Consultar estado de mi departamento</a></div>
+<div id="est-login-box" style="display:none;margin-top:8px"><div class="login-field" style="margin-bottom:6px"><input id="est-login-in" type="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Tu código (ej: 07-AB12CD34)" onkeydown="if(event.key==='Enter'){estLoginIr();return false;}"/></div>
+<button class="login-btn" type="button" style="padding:10px;font-size:14px" onclick="estLoginIr()">Consultar</button><div id="est-login-err" style="color:#fecaca;font-size:12px;margin-top:6px"></div></div>
 </div>
 </div>
+<div id="estado-screen" style="display:none"></div>
 <div id="app">
 <div id="transp-banner-el" class="transp-banner" style="display:none">👁 Vista Transparencia — Solo lectura para residentes &nbsp;|&nbsp;<a href="#" onclick="backToLogin();return false;">← Volver</a></div>
 <div class="topbar">
@@ -89,6 +93,11 @@
 <script src="certificados_pdf.js"></script>
 <script src="certificados.js"></script>
 <script src="novedades.js"></script>
+<script src="actas.js"></script>
+<script src="compromisos.js"></script>
+<script src="informes.js"></script>
+<script src="convocatorias.js"></script>
+<script src="estado.js"></script>
 <script>
 if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').then(r=>console.log('SW registered:',r.scope)).catch(e=>console.log('SW error:',e)); }); }
 </script>
