@@ -144,7 +144,7 @@ function fechaHoraCL(ts){
 function descargarBlob(contenido,tipo,nombre){
  const url=URL.createObjectURL(new Blob([contenido],{type:tipo}));
  const a=document.createElement('a');a.href=url;a.download=nombre;document.body.appendChild(a);a.click();
- setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},400);
+ setTimeout(()=>{if(a.parentNode)a.parentNode.removeChild(a);URL.revokeObjectURL(url);},60000);
 }
 
 /* ---------- vista: Registro de cambios ---------- */

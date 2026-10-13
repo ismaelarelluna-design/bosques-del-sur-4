@@ -139,7 +139,36 @@ function pdfCerrar(c,nota){
  });
 }
 async function pdfBytes(c){return await c.doc.save();}
-function pdfDescargar(bytes,nombre){descargarBlob(bytes,'application/pdf',nombre);}
+/* --- Entrega de PDF (descargar / abrir) robusta para móvil y PWA instalada ---
+   Problemas que resuelve: (1) en el celular el blob se revocaba antes de que el navegador
+   iniciara la descarga; (2) window.open() de un blob no funciona en una PWA instalada ni en
+   Chrome Android (no renderiza PDF); (3) iOS ignora el atributo download en PWA. */
+function pdfEsIOS(){return /iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);}
+function pdfEsMovil(){return pdfEsIOS()||/Android/i.test(navigator.userAgent);}
+function pdfEsPWA(){try{return (window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true;}catch(e){return false;}}
+/* true = se compartió (o el usuario canceló); false = el dispositivo no puede compartir archivos */
+async function pdfCompartirArchivo(bytes,nombre){
+ try{
+  const f=new File([bytes],nombre,{type:'application/pdf'});
+  if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:nombre});return true;}
+ }catch(e){if(e&&e.name==='AbortError')return true;}
+ return false;
+}
+async function pdfDescargar(bytes,nombre){
+ if(pdfEsIOS()&&await pdfCompartirArchivo(bytes,nombre))return;
+ try{descargarBlob(bytes,'application/pdf',nombre);if(pdfEsMovil())showToast('Descargando PDF… revisa tus Descargas','success');}
+ catch(e){console.error(e);if(!(await pdfCompartirArchivo(bytes,nombre)))showToast('No se pudo descargar el PDF en este dispositivo','error');}
+}
+/* act = {bytes,nombre,url}. En móvil/PWA no se abre pestaña: se entrega el archivo. */
+async function pdfAbrir(act){
+ if(!act)return;
+ if(pdfEsMovil()||pdfEsPWA()){
+  if(await pdfCompartirArchivo(act.bytes,act.nombre))return;
+  return pdfDescargar(act.bytes,act.nombre);
+ }
+ const w=window.open(act.url,'_blank');
+ if(!w)pdfDescargar(act.bytes,act.nombre);
+}
 function pdfUrl(bytes){return URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));}
 
 /* ===========================================================================

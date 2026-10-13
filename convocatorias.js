@@ -191,7 +191,7 @@ async function convVerPDF(id){
  document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:760px">
   <div class="modal-title">📣 ${esc(k.folio)} — ${esc(convTipoLabel(k.tipo))}</div><div style="margin-bottom:14px">${vista}</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="pdfDescargar(convPdfActual.bytes,convPdfActual.nombre)">⬇ Descargar PDF</button>
-  <button class="btn btn-ghost" onclick="window.open(convPdfActual.url,'_blank')">↗ Abrir en pestaña nueva</button>
+  <button class="btn btn-ghost" onclick="pdfAbrir(convPdfActual)">↗ Abrir en pestaña nueva</button>
   <button class="btn btn-success" onclick="convCompartir('${esc(id)}')">📤 Compartir PDF</button>
   <button class="btn btn-ghost" onclick="convWhatsApp('${esc(id)}')">💬 Mensaje WhatsApp</button>
   <button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div></div></div>`;

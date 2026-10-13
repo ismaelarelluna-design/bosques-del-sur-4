@@ -283,7 +283,7 @@ async function verCertificado(id){
  <div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-primary" onclick="certDescargarPDF()">⬇ Descargar PDF</button><button class="btn btn-ghost" onclick="certAbrirPDF()">↗ Abrir en pestaña nueva</button><button class="btn btn-success" onclick="certCompartirPDF('${esc(id)}')">📤 Compartir</button>${certTipo(c)==='venta'?`<button class="btn btn-ghost" onclick="verCertificadoImagen('${esc(id)}')">🖼 Versión imagen (JPG)</button>`:''}<button class="btn btn-ghost" onclick="closeModal();renderView()">Cerrar</button></div></div></div>`;
 }
 function certDescargarPDF(){if(certPdfActual)pdfDescargar(certPdfActual.bytes,certPdfActual.nombre);}
-function certAbrirPDF(){if(certPdfActual)window.open(certPdfActual.url,'_blank');}
+function certAbrirPDF(){pdfAbrir(certPdfActual);}
 async function certCompartirPDF(id){
  const c=certificados().find(x=>x.id===id);if(!c||!certPdfActual)return;
  try{

@@ -410,7 +410,7 @@ async function actaVerPDF(id,pub){
   <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="actaDescargarPDF()">⬇ Descargar PDF</button><button class="btn btn-ghost" onclick="actaAbrirPDF()">↗ Abrir en pestaña nueva</button><button class="btn btn-success" onclick="actaCompartirPDF('${esc(id)}')">📤 Compartir</button><button class="btn btn-ghost" onclick="previsualizarActa('${esc(id)}',${publico})">← Volver al acta</button></div></div></div>`;
 }
 function actaDescargarPDF(){if(actaPdfActual)pdfDescargar(actaPdfActual.bytes,actaPdfActual.nombre);}
-function actaAbrirPDF(){if(actaPdfActual)window.open(actaPdfActual.url,'_blank');}
+function actaAbrirPDF(){pdfAbrir(actaPdfActual);}
 async function actaCompartirPDF(id){
  const a=actaPorId(id);if(!a||!actaPdfActual)return;
  try{

@@ -534,18 +534,21 @@ function navBadge(id){
  else if(id==='recordatorios'&&typeof compIncumplidosCount==='function'){n=compIncumplidosCount();t='compromiso(s) de pago incumplido(s)';}
  return n?`<span class="nav-badge" title="${n} ${t}">${n>99?'99+':n}</span>`:'';
 }
+/* Versión de la app: sube de 2 en 2 (1.00.00 > 1.00.02 > 1.00.04). Cambiar SOLO aquí y subir CACHE_NAME en sw.js. */
+const APP_VERSION='1.00.00';
+function versionHtml(){return `<div class="app-version">Versión ${APP_VERSION}</div>`;}
 function navTarjetas(modo){
  return NAV_GROUPS.map((g,i)=>`<div class="nav-card" style="--nd:${(-i*1.3).toFixed(1)}s"><div class="nav-card-t">${g.t}</div>${g.ids.map(id=>{const v=VIEWS_ADMIN.find(x=>x.id===id);if(!v)return '';return modo==='drawer'?navDrawerItem(v.id,v.icon,v.label+navBadge(v.id)):`<div class="nav-item ${state.currentView===v.id?'active':''}" onclick="goTo('${v.id}')"><span class="nav-ico">${v.icon}</span>${v.label}${navBadge(v.id)}</div>`;}).join('')}</div>`).join('');
 }
 const VIEWS_TRANSP=[{id:'reportes',icon:'📊',label:'Reporte'}];
 function getViews(){return state.isTransparencia?VIEWS_TRANSP:VIEWS_ADMIN;}
-function renderSidebar(){try{document.getElementById('sidebar').innerHTML=state.isTransparencia?'<div class="nav-card"><div class="nav-card-t">Vista Transparencia</div>'+VIEWS_TRANSP.map(v=>`<div class="nav-item ${state.currentView===v.id?'active':''}" onclick="goTo('${v.id}')"><span class="nav-ico">${v.icon}</span>${v.label}</div>`).join('')+'</div>':navTarjetas('side');}catch(e){console.error(e);}}
+function renderSidebar(){try{document.getElementById('sidebar').innerHTML=state.isTransparencia?'<div class="nav-card"><div class="nav-card-t">Vista Transparencia</div>'+VIEWS_TRANSP.map(v=>`<div class="nav-item ${state.currentView===v.id?'active':''}" onclick="goTo('${v.id}')"><span class="nav-ico">${v.icon}</span>${v.label}</div>`).join('')+'</div>'+versionHtml():navTarjetas('side')+versionHtml();}catch(e){console.error(e);}}
 function renderBNav(){renderDrawerNav();}
 function renderDrawerNav(){try{const navEl=document.getElementById('drawer-nav');if(!navEl)return;const isAdmin=!state.isTransparencia;let h='';
 if(isAdmin){h+=navTarjetas('drawer');}
 else{h+='<div class="nav-card" style="--nd:0s"><div class="nav-card-t">Vista Transparencia</div>'+navDrawerItem('reportes','📊','Reporte')+'</div>';}
 navEl.innerHTML=h;const f=document.getElementById('drawer-footer');
-if(f){if(isAdmin)f.innerHTML=`<div class="drawer-footer-info">Sesión activa · Admin</div><button class="drawer-logout" onclick="doLogout();closeDrawer()">Cerrar Sesión</button>`;else f.innerHTML=`<div class="drawer-footer-info">Vista Residentes · Solo lectura</div><button class="drawer-logout" style="background:var(--accent-deep);" onclick="backToLogin();closeDrawer()">← Volver al Login</button>`;}
+if(f){if(isAdmin)f.innerHTML=`<div class="drawer-footer-info">Sesión activa · Admin · v${APP_VERSION}</div><button class="drawer-logout" onclick="doLogout();closeDrawer()">Cerrar Sesión</button>`;else f.innerHTML=`<div class="drawer-footer-info">Vista Residentes · Solo lectura · v${APP_VERSION}</div><button class="drawer-logout" style="background:var(--accent-deep);" onclick="backToLogin();closeDrawer()">← Volver al Login</button>`;}
 const s=document.getElementById('drawer-sub');if(s)s.textContent=isAdmin?'Panel de Administración':'Vista Transparencia';}catch(e){console.error(e);}}
 function navDrawerItem(id,icon,label){return `<div class="drawer-nav-item ${state.currentView===id?'active':''}" onclick="goTo('${id}');closeDrawer()"><span class="drawer-nav-icon">${icon}</span>${label}</div>`;}
 function openDrawer(){try{const o=document.getElementById('drawer-overlay');const d=document.getElementById('drawer');const l=document.getElementById('drawer-logo');if(!o||!d)return;if(l)l.src=LOGO_SRC;renderDrawerNav();o.classList.add('open');d.classList.add('open');document.body.style.overflow='hidden';}catch(e){console.error(e);}}
