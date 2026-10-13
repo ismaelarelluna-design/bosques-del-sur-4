@@ -407,7 +407,7 @@ async function actaVerPDF(id,pub){
   :'<div style="padding:18px;text-align:center;font-size:13px;color:var(--text2);border:1px dashed var(--border);border-radius:10px">PDF generado. Usa los botones para descargarlo o abrirlo.</div>';
  document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:760px">
   <div class="modal-title">📋 ${esc(a.folio)} — ${esc(a.titulo)}</div><div style="margin-bottom:14px">${vista}</div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="actaDescargarPDF()">⬇ Descargar PDF</button><button class="btn btn-ghost" onclick="actaAbrirPDF()">↗ Abrir en pestaña nueva</button><button class="btn btn-success" onclick="actaCompartirPDF('${esc(id)}')">📤 Compartir</button><button class="btn btn-ghost" onclick="previsualizarActa('${esc(id)}',${publico})">← Volver al acta</button></div></div></div>`;
+  <div style="display:flex;gap:8px;flex-wrap:wrap">${pdfBtnDescargar(actaPdfActual,'actaPdfActual')}<button class="btn btn-ghost" onclick="actaAbrirPDF()">↗ Abrir en pestaña nueva</button><button class="btn btn-success" onclick="actaCompartirPDF('${esc(id)}')">📤 Compartir</button><button class="btn btn-ghost" onclick="previsualizarActa('${esc(id)}',${publico})">← Volver al acta</button></div></div></div>`;
 }
 function actaDescargarPDF(){if(actaPdfActual)pdfDescargar(actaPdfActual.bytes,actaPdfActual.nombre);}
 function actaAbrirPDF(){pdfAbrir(actaPdfActual);}

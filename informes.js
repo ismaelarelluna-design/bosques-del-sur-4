@@ -227,7 +227,7 @@ async function rendGenerarPDF(){
    :'<div style="padding:18px;text-align:center;font-size:13px;color:var(--text2);border:1px dashed var(--border);border-radius:10px">PDF generado. Usa los botones para descargarlo o abrirlo.</div>';
   document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:760px">
    <div class="modal-title">📑 ${esc(d.folio)} — ${e.tipo==='mensual'?esc(MESES[d.m])+' '+d.a:'Año '+d.a}</div><div style="margin-bottom:14px">${vista}</div>
-   <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="pdfDescargar(rendPdfActual.bytes,rendPdfActual.nombre)">⬇ Descargar PDF</button><button class="btn btn-ghost" onclick="pdfAbrir(rendPdfActual)">↗ Abrir en pestaña nueva</button><button class="btn btn-success" onclick="rendCompartir()">📤 Compartir</button><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div></div></div>`;
+   <div style="display:flex;gap:8px;flex-wrap:wrap">${pdfBtnDescargar(rendPdfActual,'rendPdfActual')}<button class="btn btn-ghost" onclick="pdfAbrir(rendPdfActual)">↗ Abrir en pestaña nueva</button><button class="btn btn-success" onclick="rendCompartir()">📤 Compartir</button><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div></div></div>`;
  }catch(err){console.error(err);showToast('No se pudo generar el PDF: '+err.message,'error');}
 }
 async function rendCompartir(){

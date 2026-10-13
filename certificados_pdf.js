@@ -155,9 +155,15 @@ async function pdfCompartirArchivo(bytes,nombre){
  return false;
 }
 async function pdfDescargar(bytes,nombre){
- if(pdfEsIOS()&&await pdfCompartirArchivo(bytes,nombre))return;
- try{descargarBlob(bytes,'application/pdf',nombre);if(pdfEsMovil())showToast('Descargando PDF… revisa tus Descargas','success');}
+ if(pdfEsMovil()&&await pdfCompartirArchivo(bytes,nombre))return;
+ try{descargarBlob(bytes,'application/pdf',nombre);if(pdfEsMovil())showToast('Si no se descarga, usa el botón Compartir','info');}
  catch(e){console.error(e);if(!(await pdfCompartirArchivo(bytes,nombre)))showToast('No se pudo descargar el PDF en este dispositivo','error');}
+}
+/* Botón "Descargar PDF": en móvil es un enlace nativo <a download> (lo más fiable en Android/PWA);
+   en computador, botón normal. act = {bytes,nombre,url}; varName = nombre de esa variable global (para el botón de escritorio). */
+function pdfBtnDescargar(act,varName){
+ if(act&&pdfEsMovil()&&!pdfEsIOS())return `<a class="btn btn-primary" href="${act.url}" download="${String(act.nombre).replace(/"/g,'')}" style="text-decoration:none;display:inline-flex;align-items:center">⬇ Descargar PDF</a>`;
+ return `<button class="btn btn-primary" onclick="pdfDescargar(${varName}.bytes,${varName}.nombre)">⬇ Descargar PDF</button>`;
 }
 /* act = {bytes,nombre,url}. En móvil/PWA no se abre pestaña: se entrega el archivo. */
 async function pdfAbrir(act){
