@@ -31,7 +31,7 @@ function compromisosLista(){
 function compPorId(id){return compromisosLista().find(c=>String(c.id)===String(id))||null;}
 function compItemPagado(it,depId){
  if(it.tipo==='multa'){const m=(appData.multas||[]).find(x=>String(x.id)===String(it.id));return !m||m.estado==='Pagada'||m.estado==='Anulada';}
- return estaPagado(((appData.pagos||{})[it.key]||{})[depId]);
+ return !exigible(it.key,depId)||estaPagado(((appData.pagos||{})[it.key]||{})[depId]);
 }
 function compPendientes(c){return c.items.filter(it=>!compItemPagado(it,c.depId));}
 function compMontoPendiente(c){return compPendientes(c).reduce((s,it)=>s+(Number(it.v)||0),0);}

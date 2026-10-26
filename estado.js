@@ -25,7 +25,7 @@ function estEnlace(codigo){return location.origin+location.pathname.replace(/ind
 /* ---------- datos públicos de un departamento ---------- */
 function estDatosDepto(dep){
  const keys12=clavesVentana('12'),ult=keys12[keys12.length-1];
- const g=keys12.map(k=>estaPagado(((appData.pagos||{})[k]||{})[dep.id])?'1':'0').join('');
+ const g=keys12.map(k=>!exigible(k,dep.id)?'2':(estaPagado(((appData.pagos||{})[k]||{})[dep.id])?'1':'0')).join('');
  const m=calcularMorosidad('todo').find(x=>x.dep.id===dep.id);
  const gc=m?m.gcMeses.map(x=>({l:x.label,m:x.monto})):[],mu=m?m.multas.map(x=>({l:String(x.regla||'Multa').slice(0,60),m:x.monto})):[];
  const cp=(typeof compVigenteDe==='function')?compVigenteDe(dep.id):null;
@@ -149,7 +149,7 @@ function estHtmlPublico(d){
  const deuda=Number(d.deuda)||0,gc=Array.isArray(d.gc)?d.gc:Object.values(d.gc||{}),mu=Array.isArray(d.mu)?d.mu:Object.values(d.mu||{});
  const [uy,um]=String(d.ult||'').split('-').map(Number),g=String(d.g||'');
  const celdas=g.split('').map((v,i)=>{const o=g.length-1-i;const dt=new Date(uy,(um-1)-o,1);
-  return `<div class="es-mes ${v==='1'?'ok':'no'}"><span>${esc(MESES[dt.getMonth()].slice(0,3))}</span><b>${v==='1'?'✓':'•'}</b><i>${String(dt.getFullYear()).slice(2)}</i></div>`;}).join('');
+  return `<div class="es-mes ${v==='1'?'ok':(v==='2'?'ex':'no')}"><span>${esc(MESES[dt.getMonth()].slice(0,3))}</span><b>${v==='1'?'✓':(v==='2'?'–':'•')}</b><i>${String(dt.getFullYear()).slice(2)}</i></div>`;}).join('');
  const cp=d.cp&&d.cp.lim?`<div class="es-card es-cp">🤝 <b>Compromiso de pago vigente</b> hasta el ${esc(String(d.cp.lim).split('-').reverse().join('/'))} por ${esc(fmt(Number(d.cp.m)||0))}.</div>`:'';
  return `<div class="es-card">
   <div class="es-row"><div><div class="es-mut">Departamento</div><div class="es-depto">${esc(d.n)}</div></div>
@@ -159,7 +159,7 @@ function estHtmlPublico(d){
  ${gc.length?`<div class="es-card"><div class="es-sec">Gastos comunes pendientes</div>${gc.map(x=>`<div class="es-li"><span>${esc(x.l)}</span><b>${esc(fmt(Number(x.m)||0))}</b></div>`).join('')}</div>`:''}
  ${mu.length?`<div class="es-card"><div class="es-sec">Multas pendientes</div>${mu.map(x=>`<div class="es-li"><span>${esc(x.l)}</span><b>${esc(fmt(Number(x.m)||0))}</b></div>`).join('')}</div>`:''}
  <div class="es-card"><div class="es-sec">Últimos 12 meses</div><div class="es-meses">${celdas}</div>
-  <div class="es-mut" style="margin-top:8px">✓ pagado · • pendiente</div></div>
+  <div class="es-mut" style="margin-top:8px">✓ pagado · • pendiente · – sin cobro / exento</div></div>
  ${deuda>0?`<div class="es-card"><div class="es-sec">Para regularizar</div><div class="es-mut" style="line-height:1.6">Transferir a:<br><b style="color:var(--text)">${esc(PDF_BANCO.split(' · ')[0])}</b><br>${esc(PDF_BANCO.split(' · ').slice(1).join(' · '))}<br>Referencia: Depto ${esc(d.n)}</div></div>`:''}
  <div class="es-mut es-nota">Información referencial actualizada el ${esc(estFechaTS(d.ts))}. Si ya realizó un pago que no aparece, comuníquese con la directiva. Este enlace es personal: por favor no lo comparta.</div>`;
 }

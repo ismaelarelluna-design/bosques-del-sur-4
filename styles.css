@@ -717,3 +717,15 @@ html{scroll-behavior:smooth;}
 .es-adm-i{min-width:0;flex:1 1 180px;line-height:1.5}.es-adm-b{display:flex;gap:4px;flex:0 0 auto}
 
 .app-version{margin:10px 12px 4px;padding-top:10px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);text-align:center;letter-spacing:.3px;}
+
+
+/* Exenciones e inicio de cobro */
+.depto-cell.exempt{background:rgba(148,163,184,.12);border-color:rgba(148,163,184,.35);}
+.depto-cell.exempt .depto-status{color:var(--text3);}
+.depto-cell.sincobro{opacity:.55;border-style:dashed;}
+.depto-cell.sincobro .depto-status{color:var(--text3);}
+.depto-acc{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;margin-top:4px;}
+.depto-acc .btn{padding:3px 7px;font-size:11px;}
+.exe-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:13px;}
+.cobro-aviso{font-size:13px;line-height:1.7;color:var(--text2);}
+.es-mes.ex{opacity:.55;}

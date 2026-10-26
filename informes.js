@@ -46,7 +46,7 @@ function rendMorosidad(a,m){
  const out=[];
  (appData.departamentos||[]).forEach(dep=>{
   let n=0,tot=0;
-  keys.forEach(k=>{if(!estaPagado(((appData.pagos||{})[k]||{})[dep.id])){n++;tot+=getGC(parseInt(k.slice(0,4)),parseInt(k.slice(5,7))-1);}});
+  keys.forEach(k=>{if(exigible(k,dep.id)&&!estaPagado(((appData.pagos||{})[k]||{})[dep.id])){n++;tot+=getGC(parseInt(k.slice(0,4)),parseInt(k.slice(5,7))-1);}});
   const mul=(appData.multas||[]).filter(x=>x.unidad_id===dep.id&&x.estado!=='Pagada'&&x.estado!=='Anulada'&&mkKey(x.anio,x.mes)<=tope);
   const tm=mul.reduce((s,x)=>s+(Number(x.monto)||0),0);
   if(tot+tm>0)out.push({dep,n,gc:tot,multas:mul.length,tm,total:tot+tm});
@@ -59,7 +59,7 @@ function rendDatosMensual(a,m){
  const mor=rendMorosidad(a,m);
  let ingA=0,egrA=0;for(let i=0;i<=m;i++){const c=rendComponentes(a,i);ingA+=c.ing;egrA+=c.egr;}
  const serie=[];for(let i=5;i>=0;i--){const d=new Date(a,m-i,1);const c=rendComponentes(d.getFullYear(),d.getMonth());serie.push({l:REND_MES_CORTO(d.getMonth())+' '+String(d.getFullYear()).slice(2),ing:c.ing,egr:c.egr});}
- return {tipo:'mensual',a,m,cur,prev,p,cats,catsP,mor,total:(appData.departamentos||[]).length||TOTAL_DEPTOS,
+ return {tipo:'mensual',a,m,cur,prev,p,cats,catsP,mor,total:Math.max(1,totalExigibles(mkKey(a,m))),
   acum:{ing:ingA,egr:egrA,saldo:ingA-egrA},saldoAcum:rendSaldoAcumulado(a,m),serie,
   compVig:(typeof compromisosLista==='function')?compromisosLista().filter(c=>compEstado(c)==='vigente').length:0,
   compInc:(typeof compromisosLista==='function')?compromisosLista().filter(c=>compEstado(c)==='incumplido').length:0,
@@ -75,26 +75,31 @@ function rendDatosAnual(a){
  return {tipo:'anual',a,ultimo,meses,cats,ing,egr,saldo:ing-egr,saldoAcum:rendSaldoAcumulado(a,ultimo),mor,total:(appData.departamentos||[]).length||TOTAL_DEPTOS,folio:'RDA-'+a};
 }
 
+/* Datos / cifras según el tipo de informe (mensual, anual o comparativo). */
+function rendDatosTipo(e){return e.tipo==='mensual'?rendDatosMensual(e.anio,e.mes):(e.tipo==='comparativo'?rendDatosComparativo(e.ancla):rendDatosAnual(e.anio));}
+function rendIng(d){return d.tipo==='mensual'?d.cur.ing:(d.tipo==='comparativo'?d.periodo[3].ing:d.ing);}
+function rendEgr(d){return d.tipo==='mensual'?d.cur.egr:(d.tipo==='comparativo'?d.periodo[3].egr:d.egr);}
+
 /* ---------- vista ---------- */
 function vRendicion(){
  const e=estadoRend();
- const tabs=`<div class="seg"><button class="seg-btn ${e.tipo==='mensual'?'on':''}" onclick="setRend({tipo:'mensual'})">📅 Mensual</button><button class="seg-btn ${e.tipo==='anual'?'on':''}" onclick="setRend({tipo:'anual'})">📆 Anual</button></div>`;
- const d=e.tipo==='mensual'?rendDatosMensual(e.anio,e.mes):rendDatosAnual(e.anio);
- const ing=e.tipo==='mensual'?d.cur.ing:d.ing,egr=e.tipo==='mensual'?d.cur.egr:d.egr,sal=ing-egr;
+ const tabs=`<div class="seg"><button class="seg-btn ${e.tipo==='mensual'?'on':''}" onclick="setRend({tipo:'mensual'})">📅 Mensual</button><button class="seg-btn ${e.tipo==='anual'?'on':''}" onclick="setRend({tipo:'anual'})">📆 Anual</button><button class="seg-btn ${e.tipo==='comparativo'?'on':''}" onclick="setRend({tipo:'comparativo'})">📈 Comparativo</button></div>`;
+ const d=rendDatosTipo(e);
+ const ing=rendIng(d),egr=rendEgr(d),sal=ing-egr;
  const yrs=YEARS.map(y=>`<option value="${y}" ${y===e.anio?'selected':''}>${y}</option>`).join('');
  return `<div class="page-title">Rendición de cuentas</div>
  <div class="page-sub">Informe financiero en PDF con logo y folio, listo para presentar o compartir. Se calcula con los registros actuales.</div>
  <div class="toolbar">${tabs}
   ${e.tipo==='mensual'?`<select class="fi" style="width:auto" onchange="setRend({mes:parseInt(this.value)})">${MESES.map((n,i)=>`<option value="${i}" ${i===e.mes?'selected':''}>${n}</option>`).join('')}</select>`:''}
-  <select class="fi" style="width:auto" onchange="setRend({anio:parseInt(this.value)})">${yrs}</select>
+  ${e.tipo==='comparativo'?'':`<select class="fi" style="width:auto" onchange="setRend({anio:parseInt(this.value)})">${yrs}</select>`}
   <div class="toolbar-sep"></div><button class="btn btn-primary" onclick="rendGenerarPDF()">📄 Generar PDF</button></div>
  <div class="stats-grid mant-stats">
   <div class="stat-card"><div class="stat-label"><span class="stat-icon">📥</span>Ingresos</div><div class="stat-value small" data-plain style="color:var(--green)">${fmt(ing)}</div></div>
   <div class="stat-card"><div class="stat-label"><span class="stat-icon">📤</span>Egresos</div><div class="stat-value small" data-plain style="color:var(--danger)">${fmt(egr)}</div></div>
-  <div class="stat-card"><div class="stat-label"><span class="stat-icon">⚖️</span>${e.tipo==='mensual'?'Saldo del mes':'Saldo del año'}</div><div class="stat-value small" data-plain style="color:${sal>=0?'var(--green)':'var(--danger)'}">${fmt(sal)}</div></div>
-  <div class="stat-card"><div class="stat-label"><span class="stat-icon">💰</span>Saldo acumulado</div><div class="stat-value small" data-plain>${fmt(d.saldoAcum)}</div></div></div>
+  <div class="stat-card"><div class="stat-label"><span class="stat-icon">⚖️</span>${e.tipo==='mensual'?'Saldo del mes':(e.tipo==='comparativo'?'Resultado ene-'+MESES[d.M].slice(0,3).toLowerCase()+' '+d.Y:'Saldo del año')}</div><div class="stat-value small" data-plain style="color:${sal>=0?'var(--green)':'var(--danger)'}">${fmt(sal)}</div></div>
+  <div class="stat-card"><div class="stat-label"><span class="stat-icon">💰</span>Saldo acumulado</div><div class="stat-value small" data-plain>${e.tipo==='comparativo'?fmt(calcularBalanceGeneral()):fmt(d.saldoAcum)}</div></div></div>
  <div class="card" style="margin-bottom:14px"><div class="card-title">Contenido del PDF</div>
-  <div style="font-size:13px;color:var(--text2);line-height:1.7">${e.tipo==='mensual'
+  <div style="font-size:13px;color:var(--text2);line-height:1.7">${e.tipo==='comparativo'?'1) Comparación de los últimos 4 años: año completo y mismo período (enero al último mes exigible), con gráficos de barras y líneas, cobranza y egresos por categoría. Los años sin pagos cargados salen como «sin datos». 2) Detalle de los últimos 4 meses: cuadro de ingresos y egresos, gráficos, categorías, mayores gastos y deuda. No incluye datos personales.':e.tipo==='mensual'
    ?'Resumen del período · ingresos y egresos comparados con el mes anterior · egresos por categoría y detalle · cobranza y deuda acumulada · evolución de los últimos 6 meses · acumulado del año · firmas de la directiva.'
    :'Resumen del año · tabla mes a mes (ingresos, egresos, saldo y departamentos al día) · egresos por categoría · deuda acumulada al cierre · firmas de la directiva.'}</div>
   <label class="cp-it" style="border:none;padding:10px 0 0;cursor:pointer"><input type="checkbox" ${e.det?'checked':''} onchange="setRend({det:this.checked})"/><span>Incluir detalle de deuda por departamento <em style="color:var(--text3);font-style:normal">(datos personales: solo uso interno de la directiva)</em></span></label></div>
@@ -172,7 +177,7 @@ async function pdfRendicionMensual(d){
  /* cobranza */
  pdfAsegurar(c,210);pdfSeccion(c,(cur.gastos.length?'4':'3')+'. Cobranza y deuda acumulada');
  const deuda=d.mor.reduce((s,x)=>s+x.gc,0),multas=d.mor.reduce((s,x)=>s+x.tm,0);
- pdfFicha(c,[['Deptos al día en el mes',cur.pg+' de '+d.total+' ('+Math.round(cur.pg/d.total*100)+'%)'],['Deptos pendientes del mes',String(d.total-cur.pg)],
+ pdfFicha(c,[['Deptos al día en el mes',cur.pg+' de '+d.total+' ('+Math.round(cur.pg/d.total*100)+'%)'],['Deptos pendientes del mes',String(Math.max(0,d.total-cur.pg))],
   ['Deptos con deuda acumulada',String(d.mor.length),d.mor.length?PDF_COL.rojo:PDF_COL.verde],['Gastos comunes adeudados',fmt(deuda),deuda?PDF_COL.rojo:PDF_COL.verde],['Multas pendientes',fmt(multas)],
   ['Compromisos de pago',d.compVig+' vigente'+(d.compVig===1?'':'s')+(d.compInc?' · '+d.compInc+' incumplido'+(d.compInc===1?'':'s'):'')]]);
  if(estadoRend().det)rendTablaMorosidad(c,d.mor);
@@ -198,7 +203,7 @@ async function pdfRendicionAnual(d){
  pdfFranja(c,[['Ingresos del año',fmt(d.ing),PDF_COL.verde],['Egresos del año',fmt(d.egr),PDF_COL.rojo],['Resultado del año',fmt(d.saldo),d.saldo>=0?PDF_COL.marca:PDF_COL.rojo],['Saldo acumulado',fmt(d.saldoAcum),PDF_COL.marca]]);
  pdfSeccion(c,'1. Movimiento mes a mes');
  pdfTabla(c,[{t:'Mes',w:W-100*3-90},{t:'Ingresos',w:100,align:'right'},{t:'Egresos',w:100,align:'right'},{t:'Saldo',w:100,align:'right'},{t:'Al día',w:90,align:'right'}],
-  d.meses.map(x=>[MESES[x.m],fmt(x.ing),fmt(x.egr),fmt(x.saldo),x.pg+' de '+d.total]));
+  d.meses.map(x=>[MESES[x.m],fmt(x.ing),fmt(x.egr),fmt(x.saldo),x.pg+' de '+totalExigibles(mkKey(d.a,x.m))]));
  rendFilaTotal(c,'TOTAL '+d.a,fmt(d.saldo),d.saldo>=0?PDF_COL.marca:PDF_COL.rojo);
  pdfSeccion(c,'2. Egresos por categoría');
  const cats=Object.keys(d.cats).sort((x,y)=>d.cats[y]-d.cats[x]);
@@ -214,19 +219,19 @@ async function pdfRendicionAnual(d){
  return await pdfBytes(c);
 }
 let rendPdfActual=null;
-async function rendGenerarPDF(){
- const e=estadoRend();
+async function rendGenerarPDF(ov){
+ const e=Object.assign({},estadoRend(),ov||{});
  try{
-  const d=e.tipo==='mensual'?rendDatosMensual(e.anio,e.mes):rendDatosAnual(e.anio);
-  const bytes=e.tipo==='mensual'?await pdfRendicionMensual(d):await pdfRendicionAnual(d);
+  const d=rendDatosTipo(e);
+  const bytes=e.tipo==='mensual'?await pdfRendicionMensual(d):(e.tipo==='comparativo'?await pdfComparativo(d):await pdfRendicionAnual(d));
   if(rendPdfActual&&rendPdfActual.url)URL.revokeObjectURL(rendPdfActual.url);
-  const nombre=e.tipo==='mensual'?'Rendicion de cuentas_'+MESES[d.m]+' '+d.a+'.pdf':'Balance anual_'+d.a+'.pdf';
-  const ing=e.tipo==='mensual'?d.cur.ing:d.ing,egr=e.tipo==='mensual'?d.cur.egr:d.egr;
-  rendPdfActual={bytes,nombre,url:pdfUrl(bytes),texto:'CONDOMINIO BOSQUES DEL SUR 4\n'+(e.tipo==='mensual'?'Rendición de cuentas '+MESES[d.m]+' '+d.a:'Balance anual '+d.a)+'\nIngresos: '+fmt(ing)+' · Egresos: '+fmt(egr)+' · Saldo: '+fmt(ing-egr)};
+  const nombre=e.tipo==='mensual'?'Rendicion de cuentas_'+MESES[d.m]+' '+d.a+'.pdf':(e.tipo==='comparativo'?(d.transp?'Informe de transparencia_'+MESES[d.M]+' '+d.Y:'Comparativo de gestion_'+d.anios[0]+'-'+d.Y)+'.pdf':'Balance anual_'+d.a+'.pdf');
+  const ing=rendIng(d),egr=rendEgr(d),titulo=e.tipo==='mensual'?'Rendición de cuentas '+MESES[d.m]+' '+d.a:(e.tipo==='comparativo'?(d.transp?'Informe de transparencia':'Comparativo de gestión')+' '+d.anios[0]+'-'+d.Y+' (ene-'+MESES[d.M].slice(0,3).toLowerCase()+' '+d.Y+')':'Balance anual '+d.a);
+  rendPdfActual={bytes,nombre,url:pdfUrl(bytes),texto:'CONDOMINIO BOSQUES DEL SUR 4\n'+titulo+'\nIngresos: '+fmt(ing)+' · Egresos: '+fmt(egr)+' · Saldo: '+fmt(ing-egr)};
   const vista=window.innerWidth>=820?`<iframe src="${rendPdfActual.url}#view=FitH&toolbar=0" style="width:100%;height:62vh;border:1px solid var(--border);border-radius:10px;background:#fff" title="Vista previa"></iframe>`
    :'<div style="padding:18px;text-align:center;font-size:13px;color:var(--text2);border:1px dashed var(--border);border-radius:10px">PDF generado. Usa los botones para descargarlo o abrirlo.</div>';
   document.getElementById('modal-area').innerHTML=`<div class="modal-overlay open" onclick="if(event.target===this)closeModal()"><div class="modal" style="max-width:760px">
-   <div class="modal-title">📑 ${esc(d.folio)} — ${e.tipo==='mensual'?esc(MESES[d.m])+' '+d.a:'Año '+d.a}</div><div style="margin-bottom:14px">${vista}</div>
+   <div class="modal-title">📑 ${esc(d.folio)} — ${e.tipo==='mensual'?esc(MESES[d.m])+' '+d.a:(e.tipo==='comparativo'?d.anios[0]+' a '+d.Y:'Año '+d.a)}</div><div style="margin-bottom:14px">${vista}</div>
    <div style="display:flex;gap:8px;flex-wrap:wrap">${pdfBtnDescargar(rendPdfActual,'rendPdfActual')}<button class="btn btn-ghost" onclick="pdfAbrir(rendPdfActual)">↗ Abrir en pestaña nueva</button><button class="btn btn-success" onclick="rendCompartir()">📤 Compartir</button><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button></div></div></div>`;
  }catch(err){console.error(err);showToast('No se pudo generar el PDF: '+err.message,'error');}
 }

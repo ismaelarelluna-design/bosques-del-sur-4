@@ -112,10 +112,11 @@ function pdfGrilla12(c,meses){
  pdfSeccion(c,'Últimos 12 períodos');
  const total=PDF_W-PDF_M*2,cw=total/12,h=44;pdfAsegurar(c,h+10);
  meses.forEach((m,i)=>{const x=PDF_M+i*cw;
-  pdfRect(c,x+2,c.y,cw-4,h,m.ok?'#DCF5EC':'#FBE4E4');
+  pdfRect(c,x+2,c.y,cw-4,h,m.ex?'#EEF0F3':(m.ok?'#DCF5EC':'#FBE4E4'));
   const mm=parseInt(m.k.slice(5,7))-1;pdfTexto(c,MESES[mm].slice(0,3)+' '+m.k.slice(2,4),{x:x+2+(cw-4)/2-14,size:7.5,color:PDF_COL.gris,y:c.y+13});
-  const cx=x+cw/2,cy=c.y+30,col=m.ok?PDF_COL.verde:PDF_COL.rojo;
-  if(m.ok){pdfLineaXY(c,cx-5,cy,cx-1.5,cy+4,col,1.8);pdfLineaXY(c,cx-1.5,cy+4,cx+5.5,cy-5,col,1.8);}
+  const cx=x+cw/2,cy=c.y+30,col=m.ex?PDF_COL.gris:(m.ok?PDF_COL.verde:PDF_COL.rojo);
+  if(m.ex){pdfLineaXY(c,cx-5,cy,cx+5,cy,col,1.8);}
+  else if(m.ok){pdfLineaXY(c,cx-5,cy,cx-1.5,cy+4,col,1.8);pdfLineaXY(c,cx-1.5,cy+4,cx+5.5,cy-5,col,1.8);}
   else{pdfLineaXY(c,cx-4.5,cy-4.5,cx+4.5,cy+4.5,col,1.8);pdfLineaXY(c,cx+4.5,cy-4.5,cx-4.5,cy+4.5,col,1.8);}});
  c.y+=h+12;
 }
@@ -155,23 +156,19 @@ async function pdfCompartirArchivo(bytes,nombre){
  return false;
 }
 async function pdfDescargar(bytes,nombre){
- if(pdfEsMovil()&&await pdfCompartirArchivo(bytes,nombre))return;
- try{descargarBlob(bytes,'application/pdf',nombre);if(pdfEsMovil())showToast('Si no se descarga, usa el botón Compartir','info');}
+ const movil=pdfEsMovil()||pdfEsPWA();
+ if(movil&&pdfEsIOS()&&await pdfCompartirArchivo(bytes,nombre))return;
+ try{descargarBlob(bytes,'application/pdf',nombre);if(movil)showToast('Descargando PDF… revisa tus Descargas','success');}
  catch(e){console.error(e);if(!(await pdfCompartirArchivo(bytes,nombre)))showToast('No se pudo descargar el PDF en este dispositivo','error');}
 }
-/* Botón "Descargar PDF": en móvil es un enlace nativo <a download> (lo más fiable en Android/PWA);
-   en computador, botón normal. act = {bytes,nombre,url}; varName = nombre de esa variable global (para el botón de escritorio). */
+/* Botón "Descargar PDF" (act = {bytes,nombre,url}; varName = nombre de esa variable global). */
 function pdfBtnDescargar(act,varName){
- if(act&&pdfEsMovil()&&!pdfEsIOS())return `<a class="btn btn-primary" href="${act.url}" download="${String(act.nombre).replace(/"/g,'')}" style="text-decoration:none;display:inline-flex;align-items:center">⬇ Descargar PDF</a>`;
  return `<button class="btn btn-primary" onclick="pdfDescargar(${varName}.bytes,${varName}.nombre)">⬇ Descargar PDF</button>`;
 }
 /* act = {bytes,nombre,url}. En móvil/PWA no se abre pestaña: se entrega el archivo. */
 async function pdfAbrir(act){
  if(!act)return;
- if(pdfEsMovil()||pdfEsPWA()){
-  if(await pdfCompartirArchivo(act.bytes,act.nombre))return;
-  return pdfDescargar(act.bytes,act.nombre);
- }
+ if(pdfEsMovil()||pdfEsPWA())return pdfDescargar(act.bytes,act.nombre);
  const w=window.open(act.url,'_blank');
  if(!w)pdfDescargar(act.bytes,act.nombre);
 }

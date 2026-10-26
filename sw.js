@@ -1,5 +1,5 @@
 // Service Worker — Condominio Bosques del Sur 4
-const CACHE_NAME = 'cbs4-v19';
+const CACHE_NAME = 'cbs4-v22';
 const ASSETS = [
   '/',
   '/index.html',
@@ -24,6 +24,7 @@ const ASSETS = [
   '/informes.js',
   '/convocatorias.js',
   '/estado.js',
+  '/exenciones.js','/excel.js','/comparativo.js',
   '/bosques_del_sur_4.png',
   '/icon-192-v2.png',
   '/icon-512-v2.png',
@@ -58,6 +59,8 @@ self.addEventListener('activate', e => {
 
 // Fetch: network first, cache fallback
 self.addEventListener('fetch', e => {
+  // Solo GET: los POST (p. ej. descarga de PDF por la función de Netlify) van directo a la red
+  if (e.request.method !== 'GET' || e.request.url.includes('/.netlify/')) return;
   // Firebase y APIs siempre van a la red
   if (e.request.url.includes('firebase') || 
       e.request.url.includes('googleapis') ||

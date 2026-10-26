@@ -41,7 +41,7 @@ function certDetalleDe(m){
 }
 function certUltimos12(dep){
  const keys=clavesVentana('12');
- return keys.map(k=>({k,ok:estaPagado(((appData.pagos||{})[k]||{})[dep.id])}));
+ return keys.map(k=>{const ex=!exigible(k,dep.id);return ex?{k,ok:true,ex:true}:{k,ok:estaPagado(((appData.pagos||{})[k]||{})[dep.id])};});
 }
 function certUltimoPeriodo(){const k=clavesVentana('todo');return k.length?k[k.length-1]:null;}
 
@@ -247,10 +247,10 @@ async function dibujarCertificado(c){
   ctx.textAlign='left';ctx.fillStyle='#155E75';ctx.font='bold 15px '+F;ctx.fillText('Últimos 12 períodos',M,y);y+=14;
   const cw=(W-M*2)/12;
   c.meses12.forEach((m,i)=>{const x=M+i*cw;
-   ctx.fillStyle=m.ok?'rgba(16,185,129,.14)':'rgba(220,38,38,.12)';roundRect(ctx,x+2,y,cw-4,58,8);ctx.fill();
+   ctx.fillStyle=m.ex?'rgba(107,114,128,.12)':(m.ok?'rgba(16,185,129,.14)':'rgba(220,38,38,.12)');roundRect(ctx,x+2,y,cw-4,58,8);ctx.fill();
    ctx.textAlign='center';ctx.fillStyle='#4B5563';ctx.font='11px '+F;
    const mm=parseInt(m.k.slice(5,7))-1;ctx.fillText(MESES[mm].slice(0,3)+' '+m.k.slice(2,4),x+cw/2,y+18);
-   ctx.fillStyle=m.ok?'#059669':'#DC2626';ctx.font='bold 20px '+F;ctx.fillText(m.ok?'✓':'✗',x+cw/2,y+44);});
+   ctx.fillStyle=m.ex?'#6B7280':(m.ok?'#059669':'#DC2626');ctx.font='bold 20px '+F;ctx.fillText(m.ex?'–':(m.ok?'✓':'✗'),x+cw/2,y+44);});
   y+=58+40;
  }
  /* firmas */

@@ -17,7 +17,7 @@ const AUD_PATH='cbs4_auditoria';
 const AUD_MAX_POR_ESCRITURA=15;
 const AUD_POR_HOJA=20;
 
-const AUD_SECCIONES={pagos:'Gasto Común',gastosVariables:'Gastos',gastosFijos:'Gastos',conceptosGasto:'Gastos',
+const AUD_SECCIONES={pagos:'Gasto Común',exentos:'Gasto Común',gastosVariables:'Gastos',gastosFijos:'Gastos',conceptosGasto:'Gastos',
  ingresosExtra:'Ingresos Extra',multas:'Multas',formularios:'Formulario',departamentos:'Departamentos',
  mantenciones:'Mantenciones',mantencionesHechas:'Mantenciones',gastoComunHistorial:'Configuración',
  configuracion:'Configuración',proveedores:'Proveedores',rubrosProveedor:'Proveedores',
@@ -85,8 +85,30 @@ function audDiffRegistro(prev,next){
  if(prev&&next){const c=audCampos(prev,next);if(c.length)return [{accion:'editar',detalle:audTitulo(next)+' — '+c.slice(0,4).join('; ')}];}
  return [];
 }
+function audFlatExentos(seg,v){
+ const m=new Map();
+ const put=(k,id,r)=>{if(r)m.set(k+'|'+id,r);};
+ if(seg.length>=3)put(seg[1],seg[2],v);
+ else if(seg.length===2)Object.keys(v||{}).forEach(id=>put(seg[1],id,v[id]));
+ else Object.keys(v||{}).forEach(k=>Object.keys(v[k]||{}).forEach(id=>put(k,id,v[k][id])));
+ return m;
+}
+/* Exenciones: resume por departamento (no una línea por mes) */
+function audExentos(seg,prev,valor){
+ const P=audFlatExentos(seg,prev),N=audFlatExentos(seg,valor),out=[];
+ const agrupar=(A,B)=>{const por={};A.forEach((r,key)=>{if(B.has(key))return;const [k,id]=key.split('|');(por[id]=por[id]||[]).push({k,m:(r&&r.m)||''});});return por;};
+ const linea=(por,txt)=>Object.keys(por).forEach(id=>{
+  const l=por[id].sort((a,b)=>a.k.localeCompare(b.k)),dep=(appData.departamentos||[]).find(d=>String(d.id)===String(id));
+  const f=x=>(typeof formatPeriodo==='function')?formatPeriodo(x):x;
+  const tr=l.length>1?f(l[0].k)+' a '+f(l[l.length-1].k)+' ('+l.length+' meses)':f(l[0].k);
+  out.push({accion:'editar',detalle:'Depto '+(dep?dep.numero:id)+' — '+txt+': '+tr+(l[0].m?' · '+l[0].m:'')});
+ });
+ linea(agrupar(N,P),'eximido');linea(agrupar(P,N),'exención quitada');
+ return out;
+}
 function audDescribir(seg,prev,valor){
  const rama=seg[0];
+ if(rama==='exentos')return audExentos(seg,prev,valor);
  if(rama==='pagos'&&seg.length===3){
   const a=normalizarPago(prev),b=normalizarPago(valor);
   if(a.pagado===b.pagado&&a.tipo===b.tipo)return [];

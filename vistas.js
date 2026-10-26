@@ -22,7 +22,7 @@ function vDashboard(){
   return `<div class="page-title">Panel Central</div>
   <div class="page-sub">Año ${currentYear} — ${MESES[currentMonth]} | GC: ${fmt(gc)}/depto</div>
   ${monthTabs()}
-  ${isAdmin?`<div style="margin-bottom:16px;"><button class="btn btn-primary" onclick="copyResidentesLink()">🔗 Copiar link para residentes</button></div>`:''}
+  ${isAdmin?`<div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-primary" onclick="copyResidentesLink()">🔗 Copiar link para residentes</button><button class="btn btn-outline" onclick="exportarExcelConsolidado(this)">📊 Excel consolidado</button><button class="btn btn-outline" onclick="transpExportarPDF()">📄 Informe PDF</button></div>`:''}
   <div class="stats-grid">
     <div class="stat-card hero" style="grid-column: span 2;">
       <div class="stat-label">💰 Balance General Acumulado</div>
@@ -44,7 +44,7 @@ function vDashboard(){
     </div>
     <div class="stat-card">
       <div class="stat-label"><span class="stat-icon">✅</span>Al Día</div>
-      <div class="stat-value">${pg}<span style="font-size:13px;color:var(--text3)">/${TOTAL_DEPTOS}</span></div>
+      <div class="stat-value">${pg}<span style="font-size:13px;color:var(--text3)">/${totalExigibles(key)}</span></div>
     </div>
   </div>
   <div class="charts-grid">
@@ -66,34 +66,42 @@ function vGastoComun(){
   const pg=contarPagos(p);
   const rt=resumenTipoPago(currentYear,currentMonth);
   const isAdmin=!state.isTransparencia;
+  const tot=totalExigibles(key),pend=Math.max(0,tot-pg),sinCobro=mesSinCobro(key),nEx=contarExentos(key);
+  const aviso=sinCobro?`<div class="card mb-16 cobro-aviso">🔒 <strong>Período sin cobro.</strong> Este mes es anterior al inicio del cobro de gasto común (${formatPeriodo(cfgCobro().inicio)}), por eso no se marcan pagos ni cuenta como deuda.${isAdmin?` <button class="btn btn-ghost btn-sm" onclick="goTo('config')">Cambiar en Configuración</button>`:''}</div>`:'';
   return `<div class="page-title">Gasto Común</div><div class="page-sub">Valor período: ${fmt(gc)} por departamento</div>${monthTabs()}
+  ${aviso}
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-label"><span class="stat-icon">✅</span>Pagados</div><div class="stat-value">${pg}</div><div class="stat-meta">${fmt(pg*gc)}</div></div>
-    <div class="stat-card"><div class="stat-label"><span class="stat-icon">⏳</span>Pendientes</div><div class="stat-value">${TOTAL_DEPTOS-pg}</div><div class="stat-meta">${fmt((TOTAL_DEPTOS-pg)*gc)}</div></div>
+    <div class="stat-card"><div class="stat-label"><span class="stat-icon">⏳</span>Pendientes</div><div class="stat-value">${pend}</div><div class="stat-meta">${fmt(pend*gc)}</div></div>
     <div class="stat-card"><div class="stat-label"><span class="stat-icon">💰</span>Recaudado</div><div class="stat-value small">${fmt(pg*gc)}</div></div>
-    <div class="stat-card"><div class="stat-label"><span class="stat-icon"></span>Meta</div><div class="stat-value small">${fmt(TOTAL_DEPTOS*gc)}</div></div>
+    <div class="stat-card"><div class="stat-label"><span class="stat-icon"></span>Meta</div><div class="stat-value small">${fmt(tot*gc)}</div></div>
   </div>
   <div class="card mb-16">
-    <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span style="font-weight:600;font-size:13px">Recaudación ${MESES[currentMonth]}</span><span style="font-size:13px;color:var(--text3)">${pg}/${TOTAL_DEPTOS} dptos</span></div>
-    <div class="prog-bar"><div class="prog-fill" style="width:${Math.round(pg/TOTAL_DEPTOS*100)}%"></div></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:10px;"><span style="font-weight:600;font-size:13px">Recaudación ${MESES[currentMonth]}</span><span style="font-size:13px;color:var(--text3)">${pg}/${tot} dptos${nEx?` · ${nEx} exento${nEx>1?'s':''}`:''}</span></div>
+    <div class="prog-bar"><div class="prog-fill" style="width:${(tot?Math.round(pg/tot*100):0)}%"></div></div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-top:6px">
       <span>💵 Efectivo <strong style="color:var(--text2)">${rt.efectivo.deptos}</strong> · ${fmt(rt.efectivo.monto)} &nbsp;|&nbsp; 🏦 Transferencia <strong style="color:var(--text2)">${rt.transferencia.deptos}</strong> · ${fmt(rt.transferencia.monto)}</span>
-      <span>${Math.round(pg/TOTAL_DEPTOS*100)}%</span>
+      <span>${(tot?Math.round(pg/tot*100):0)}%</span>
     </div>
   </div>
   <div class="card">
     <div class="card-title">Estado por Departamento${isAdmin?' <span style="font-size:11px;color:var(--text3)">— clic para marcar/desmarcar</span>':''}</div>
     <div class="depto-grid">${(appData.departamentos||[]).map(d=>{
       const pi=normalizarPago(p[d.id]);const pd=pi.pagado;const tm=pd?tipoPagoMeta(pi.tipo):null;
-      return `<div class="depto-cell ${pd?'paid':''} ${isAdmin?'clickable':''}" ${isAdmin?`onclick="togglePago('${key}',${d.id})"`:''}>
+      const exn=esExento(key,d.id),inf=exn?infoExencion(key,d.id):null;
+      const cls=pd?'paid':(exn?'exempt':(sinCobro?'sincobro':''));
+      const clic=isAdmin&&!exn&&(!sinCobro||pd);
+      return `<div class="depto-cell ${cls} ${clic?'clickable':''}" ${clic?`onclick="togglePago('${key}',${d.id})"`:''}>
         <div class="depto-num">${d.numero}</div>
         <div class="depto-name">${d.representante||'—'}</div>
-        <div class="depto-status">${pd?'✓ Pagado':'Pendiente'}</div>
+        <div class="depto-status">${pd?'✓ Pagado':(exn?'Exento':(sinCobro?'Sin cobro':'Pendiente'))}</div>
         ${pd?`<div class="depto-tipo">${tm.icon} ${tm.label}</div>`:''}
-        ${(isAdmin&&!pd)?`<button class="btn btn-ghost btn-sm" style="margin-top:4px;" onclick="event.stopPropagation();recordarMesActual(${d.id})">💬</button>`:''}
+        ${(exn&&inf&&inf.m)?`<div class="depto-tipo" title="${esc(inf.m)}">${esc(String(inf.m).slice(0,22))}</div>`:''}
+        ${(isAdmin&&!pd&&!sinCobro)?`<div class="depto-acc">${exn?'':`<button class="btn btn-ghost btn-sm" title="Recordar pago" onclick="event.stopPropagation();recordarMesActual(${d.id})">💬</button>`}<button class="btn btn-ghost btn-sm" title="${exn?'Quitar exención':'Eximir este mes'}" onclick="event.stopPropagation();${exn?`quitarExencion('${key}',${d.id})`:`abrirEximir('${key}',${d.id})`}">${exn?'↩ Quitar':'🚫 Eximir'}</button></div>`:''}
       </div>`;
     }).join('')}</div>
-  </div>`;
+  </div>
+  ${(isAdmin&&typeof htmlExenciones==='function')?htmlExenciones():''}`;
 }
 
 /* Marcar/desmarcar pago. Al MARCAR se pide el tipo (efectivo/transferencia);
@@ -102,6 +110,10 @@ function vGastoComun(){
 function togglePago(key,id){
   if(state.isTransparencia)return;
   const actual=normalizarPago(((appData.pagos||{})[key]||{})[id]);
+  if(!actual.pagado){
+    if(esExento(key,id)){showToast('Este departamento está eximido en ese mes','error');return;}
+    if(mesSinCobro(key)){showToast('Mes anterior al inicio del cobro (bloqueado). Se puede desbloquear en Configuración.','error');return;}
+  }
   if(actual.pagado){
     if(!appData.pagos)appData.pagos={};
     if(!appData.pagos[key])appData.pagos[key]={};

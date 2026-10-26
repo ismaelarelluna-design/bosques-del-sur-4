@@ -154,7 +154,7 @@ const DEFAULT_GC = 40000;
 const TOTAL_DEPTOS = 18;
 const YEARS = [2018,2019,2020,2021,2022,2023,2024,2025,2026,2027,2028];
 let state = {loggedIn:false,isTransparencia:false,currentView:'dashboard',currentYear:new Date().getFullYear(),currentMonth:new Date().getMonth(),theme:'light',connected:false,formulariosSortAsc:false,ventanaMorosidad:'12'};
-function defaultData(){return {departamentos:Array.from({length:18},(_,i)=>({id:i+1,numero:String(i+1).padStart(2,'0'),representante:'',contacto:''})),pagos:{},ingresosExtra:[],gastosFijos:{},gastosVariables:[],gastoComunHistorial:[{desde:'2022-01',valor:DEFAULT_GC}],configuracion:{tema:'light'},formularios:[],multas:[],conceptosGasto:[],mantenciones:[],mantencionesHechas:[],proveedores:[],rubrosProveedor:[],certificados:[],novedades:[],actas:[],compromisos:[],convocatorias:[],codigosEstado:{}};}
+function defaultData(){return {departamentos:Array.from({length:18},(_,i)=>({id:i+1,numero:String(i+1).padStart(2,'0'),representante:'',contacto:''})),pagos:{},exentos:{},ingresosExtra:[],gastosFijos:{},gastosVariables:[],gastoComunHistorial:[{desde:'2022-01',valor:DEFAULT_GC}],configuracion:{tema:'light'},formularios:[],multas:[],conceptosGasto:[],mantenciones:[],mantencionesHechas:[],proveedores:[],rubrosProveedor:[],certificados:[],novedades:[],actas:[],compromisos:[],convocatorias:[],codigosEstado:{}};}
 let appData = defaultData();
 let firebaseListener = null;
 let lastVoucher = null;
@@ -204,6 +204,7 @@ gastosFijos: normalizarGastosFijos(val.gastosFijos),
 gastosVariables: comoLista(val.gastosVariables),
 ingresosExtra: comoLista(val.ingresosExtra),
 pagos: val.pagos||{},
+exentos: val.exentos||{},
 gastoComunHistorial: hist.length?hist:[{desde:'2022-01',valor:DEFAULT_GC}],
 configuracion: val.configuracion||{tema:'light'},
 formularios: comoLista(val.formularios),
@@ -256,12 +257,14 @@ function construirPublico(){
  Object.keys(appData.pagos||{}).forEach(k=>{if(!okK(k))return;let e=0,t=0;
   Object.values(appData.pagos[k]||{}).forEach(v=>{const n=normalizarPago(v);if(n.pagado){if(n.tipo==='efectivo')e++;else t++;}});
   if(e||t)pagos[k]={e,t};});
- const item=g=>{const o={id:g.id==null?null:g.id,descripcion:String(g.descripcion||'').slice(0,200),monto:Number(g.monto)||0};
+ const item=g=>{const o={id:g.id==null?null:g.id,descripcion:String(g.descripcion||'').slice(0,200),monto:Number(g.monto)||0,categoria:String(g.categoria||'').slice(0,60)};
   if(g.archivoRef){o.archivoRef=String(g.archivoRef);o.archivoNombre=String(g.archivoNombre||'').slice(0,120);}return o;};
  const gastosFijos={};const gf=appData.gastosFijos||{};
  Object.keys(gf).forEach(k=>{if(!okK(k))return;const l=comoLista(gf[k]).filter(Boolean).map(item);if(l.length)gastosFijos[k]=l;});
  return {
   pagos,gastosFijos,
+  ex:(()=>{const o={};Object.keys(appData.exentos||{}).forEach(k=>{if(!okK(k))return;const n=contarExentos(k);if(n)o[k]=n;});return o;})(),
+  inicioCobro:cfgCobro().inicio,bloqueoInicio:cfgCobro().bloqueo,
   gastosVariables:comoLista(appData.gastosVariables).filter(Boolean).map(g=>({...item(g),anio:Number(g.anio)||0,mes:Number(g.mes)||0})),
   ingresosExtra:comoLista(appData.ingresosExtra).filter(Boolean).map(g=>({anio:Number(g.anio)||0,mes:Number(g.mes)||0,monto:Number(g.monto)||0})),
   multasPagadas:comoLista(appData.multas).filter(m=>m&&m.estado==='Pagada').map(m=>({anio:Number(m.anio)||0,mes:Number(m.mes)||0,monto:Number(m.monto)||0,estado:'Pagada'})),
@@ -290,7 +293,8 @@ function datosDesdePublico(pub){
  const hist=comoLista(pub.gcHistorial);
  return {...d,__publico:true,pagos,gastosFijos:gf,
   gastosVariables:comoLista(pub.gastosVariables),ingresosExtra:comoLista(pub.ingresosExtra),multas:comoLista(pub.multasPagadas),
-  gastoComunHistorial:hist.length?hist:d.gastoComunHistorial,configuracion:{tema:pub.tema==='dark'?'dark':'light'},
+  exentos:(()=>{const o={};Object.keys(pub.ex||{}).forEach(k=>{const n=Number(pub.ex[k])||0;const m={};for(let i=0;i<n;i++)m['x'+i]=true;if(n)o[k]=m;});return o;})(),
+  gastoComunHistorial:hist.length?hist:d.gastoComunHistorial,configuracion:{tema:pub.tema==='dark'?'dark':'light',inicioCobro:typeof pub.inicioCobro==='string'?pub.inicioCobro:INICIO_COBRO_DEFECTO,bloqueoInicio:pub.bloqueoInicio!==false},
   actas:comoListaConId(pub.actas)};
 }
 function revelarInterfaz(){
@@ -535,7 +539,7 @@ function navBadge(id){
  return n?`<span class="nav-badge" title="${n} ${t}">${n>99?'99+':n}</span>`:'';
 }
 /* Versión de la app: sube de 2 en 2 (1.00.00 > 1.00.02 > 1.00.04). Cambiar SOLO aquí y subir CACHE_NAME en sw.js. */
-const APP_VERSION='1.00.00';
+const APP_VERSION='1.00.02';
 function versionHtml(){return `<div class="app-version">Versión ${APP_VERSION}</div>`;}
 function navTarjetas(modo){
  return NAV_GROUPS.map((g,i)=>`<div class="nav-card" style="--nd:${(-i*1.3).toFixed(1)}s"><div class="nav-card-t">${g.t}</div>${g.ids.map(id=>{const v=VIEWS_ADMIN.find(x=>x.id===id);if(!v)return '';return modo==='drawer'?navDrawerItem(v.id,v.icon,v.label+navBadge(v.id)):`<div class="nav-item ${state.currentView===v.id?'active':''}" onclick="goTo('${v.id}')"><span class="nav-ico">${v.icon}</span>${v.label}${navBadge(v.id)}</div>`;}).join('')}</div>`).join('');
@@ -590,6 +594,29 @@ return{pagado:false,tipo:null};
 function estaPagado(v){return normalizarPago(v).pagado;}
 function tipoDePago(v){return normalizarPago(v).tipo;}
 function contarPagos(pm){return Object.values(pm||{}).filter(v=>estaPagado(v)).length;}
+
+/* ===== Exigibilidad del gasto común (inicio de cobro + exenciones) =====
+   Un mes de un departamento es EXIGIBLE si el mes ya tiene cobro y el depto no está eximido.
+   - Inicio de cobro: configuracion.inicioCobro ('YYYY-MM'; por defecto 2020-03; '' = sin límite) y
+     configuracion.bloqueoInicio (true por defecto; false = el usuario desbloqueó los meses anteriores).
+   - Exenciones: appData.exentos[periodo][deptoId] = {m:motivo, por, ts}  (ej. depto desocupado).
+   Un mes no exigible no cuenta como deuda ni como moroso, y se saca del total en los contadores.
+   Los pagos ya registrados SIEMPRE se siguen sumando (la plata recibida es real). */
+const INICIO_COBRO_DEFECTO='2020-03';
+function cfgCobro(){
+ const c=(appData&&appData.configuracion)||{};
+ const ini=(typeof c.inicioCobro==='string'&&/^\d{4}-\d{2}$/.test(c.inicioCobro))?c.inicioCobro:(c.inicioCobro===''?'':INICIO_COBRO_DEFECTO);
+ return {inicio:ini,bloqueo:c.bloqueoInicio!==false};
+}
+function mesSinCobro(k){const c=cfgCobro();return !!(c.bloqueo&&c.inicio&&String(k)<c.inicio);}
+function esExento(k,depId){const m=((appData&&appData.exentos)||{})[k];return !!(m&&m[depId]);}
+function infoExencion(k,depId){const m=((appData&&appData.exentos)||{})[k];const r=m&&m[depId];return r&&typeof r==='object'?r:(r?{}:null);}
+function contarExentos(k){const m=((appData&&appData.exentos)||{})[k];if(!m)return 0;return Object.keys(m).filter(i=>m[i]).length;}
+function totalDeptos(){return ((appData&&appData.departamentos)||[]).length||TOTAL_DEPTOS;}
+/* Departamentos sobre los que se cobra en ese mes (el "18" de los contadores). */
+function totalExigibles(k){return mesSinCobro(k)?0:Math.max(0,totalDeptos()-contarExentos(k));}
+function exigible(k,depId){return !mesSinCobro(k)&&!esExento(k,depId);}
+
 /* Resumen mensual por tipo de pago. El monto se calcula con el GC vigente del periodo,
    igual que el resto de la app (no se guarda monto por depto). */
 function resumenTipoPago(anio,mes){
@@ -696,7 +723,7 @@ const ks=Object.keys(appData.pagos||{}).filter(k=>/^\d{4}-\d{2}$/.test(k)&&Objec
 if(!ks.length)return {anio:2018,mes:0};
 return {anio:parseInt(ks[0].slice(0,4)),mes:parseInt(ks[0].slice(5,7))-1};
 }
-function calcularMorosidad(ventana){const t=ventana||state.ventanaMorosidad||'12';const keys=clavesVentana(t);const out=[];(appData.departamentos||[]).forEach(dep=>{const gcM=[];keys.forEach(k=>{if(!estaPagado((appData.pagos[k]||{})[dep.id])){const a=parseInt(k.substring(0,4));const mi=parseInt(k.substring(5,7))-1;gcM.push({key:k,label:formatPeriodo(k),monto:getGC(a,mi)});}});const mul=(appData.multas||[]).filter(m=>{if(m.unidad_id!==dep.id)return false;if(m.estado==='Pagada'||m.estado==='Anulada')return false;const mk=m.anio+'-'+String(m.mes+1).padStart(2,'0');return keys.includes(mk);});const tGC=gcM.reduce((s,g)=>s+g.monto,0);const tM=mul.reduce((s,m)=>s+m.monto,0);const tot=tGC+tM;if(tot>0)out.push({dep,gcMeses:gcM,multas:mul,total:tot});});out.sort((a,b)=>b.total-a.total);return out;}
+function calcularMorosidad(ventana){const t=ventana||state.ventanaMorosidad||'12';const keys=clavesVentana(t);const out=[];(appData.departamentos||[]).forEach(dep=>{const gcM=[];keys.forEach(k=>{if(exigible(k,dep.id)&&!estaPagado((appData.pagos[k]||{})[dep.id])){const a=parseInt(k.substring(0,4));const mi=parseInt(k.substring(5,7))-1;gcM.push({key:k,label:formatPeriodo(k),monto:getGC(a,mi)});}});const mul=(appData.multas||[]).filter(m=>{if(m.unidad_id!==dep.id)return false;if(m.estado==='Pagada'||m.estado==='Anulada')return false;const mk=m.anio+'-'+String(m.mes+1).padStart(2,'0');return keys.includes(mk);});const tGC=gcM.reduce((s,g)=>s+g.monto,0);const tM=mul.reduce((s,m)=>s+m.monto,0);const tot=tGC+tM;if(tot>0)out.push({dep,gcMeses:gcM,multas:mul,total:tot});});out.sort((a,b)=>b.total-a.total);return out;}
 function textoMoroso(m){let t=`Hola ${m.dep.representante||''} 👋\nCONDOMINIO BOSQUES DEL SUR 4\nLe enviamos su estado de cuenta pendiente:\n`;if(m.gcMeses.length){t+='\nGASTO COMÚN:\n'+m.gcMeses.map(g=>`• ${g.label}: ${fmt(g.monto)}`).join('\n')+'\n';}if(m.multas.length){t+='\nMULTAS:\n'+m.multas.map(x=>`• ${x.fecha_creacion} · ${x.regla}: ${fmt(x.monto)}`).join('\n')+'\n';}t+=`\nTOTAL PENDIENTE: ${fmt(m.total)}\n\nDatos de transferencia:\nRomina Gabriela Figueroa Acevedo\nMercado Pago — Cuenta Vista\nN° 1088283442`;return t;}
 function recordarMorosoWhatsApp(id){const m=calcularMorosidad().find(x=>x.dep.id===id);if(!m)return;abrirWhatsApp(m.dep.contacto||'',textoMoroso(m));}
 function recordarMesActual(id){const {currentYear,currentMonth}=state;const d=(appData.departamentos||[]).find(x=>x.id===id);if(!d)return;const gc=getGC(currentYear,currentMonth);const t=`Hola ${d.representante||''} 👋\nCONDOMINIO BOSQUES DEL SUR 4\nLe recordamos que el Gasto Común de ${MESES[currentMonth]} ${currentYear} (${fmt(gc)}) se encuentra pendiente.\n\nDatos de transferencia:\nRomina Gabriela Figueroa Acevedo\nMercado Pago — Cuenta Vista\nN° 1088283442`;abrirWhatsApp(d.contacto||'',t);}
