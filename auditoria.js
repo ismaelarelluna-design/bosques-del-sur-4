@@ -21,7 +21,7 @@ const AUD_SECCIONES={pagos:'Gasto Común',exentos:'Gasto Común',gastosVariables
  ingresosExtra:'Ingresos Extra',multas:'Multas',formularios:'Formulario',departamentos:'Departamentos',
  mantenciones:'Mantenciones',mantencionesHechas:'Mantenciones',gastoComunHistorial:'Configuración',
  configuracion:'Configuración',proveedores:'Proveedores',rubrosProveedor:'Proveedores',
- certificados:'Certificados',novedades:'Novedades',actas:'Actas',compromisos:'Compromisos de pago',convocatorias:'Convocatorias',codigosEstado:'Estado de cuenta'};
+ certificados:'Certificados',novedades:'Novedades',actas:'Actas',compromisos:'Compromisos de pago',convocatorias:'Convocatorias',codigosEstado:'Estado de cuenta',votaciones:'Votaciones'};
 
 /* ---------- copia local de lo que hay en Firebase ---------- */
 let _cbs4Raw=null;
@@ -124,6 +124,23 @@ function audDescribir(seg,prev,valor){
  if(rama==='codigosEstado'&&seg.length===2){/* nunca se anota el código en sí */
   const dep=(appData.departamentos||[]).find(d=>String(d.id)===String(seg[1]));
   return [{accion:valor?(prev?'regenerar':'crear'):'revocar',detalle:'Código de estado de cuenta — Depto '+(dep?dep.numero:seg[1])+(valor?'':' revocado')}];
+ }
+ if(rama==='votaciones'&&seg.length>=2){/* nunca se anotan nombres ni opciones elegidas */
+  const r=valor||prev||{},t=String(r.titulo||'').slice(0,60),f=r.folio?r.folio+' · ':'';
+  if(seg.length>2){const dep=(appData.departamentos||[]).find(d=>'d'+d.id===seg[3]);
+   if(seg[2]==='anulados'&&valor)return [{accion:'anular voto',detalle:f+t+' — voto del depto '+(dep?dep.numero:String(seg[3]||'').replace(/^d/,''))+' anulado'}];
+   return [{accion:'editar',detalle:f+t+' — '+seg[2]}];}
+  if(!valor)return [{accion:'eliminar',detalle:'Votación eliminada: '+f+t}];
+  if(!prev)return [{accion:'crear',detalle:'Votación creada: '+f+t+(valor.estado==='abierta'?' (abierta)':'')}];
+  if(prev.estado!==valor.estado){const a={'borrador>abierta':'abrir','abierta>cerrada':'cerrar','cerrada>abierta':'reabrir'}[prev.estado+'>'+valor.estado]||'editar';
+   return [{accion:a,detalle:'Votación '+(a==='abrir'?'abierta':a==='cerrar'?'cerrada':a==='reabrir'?'reabierta':'modificada')+': '+f+t}];}
+  return [{accion:'editar',detalle:'Votación editada: '+f+t}];
+ }
+ if(rama==='proveedores'&&seg.length>=3){/* ficha: contrato, evaluaciones, docs, bitacora (sin copiar contenido) */
+  const pv=(typeof proveedorNombre==='function'&&proveedorNombre(seg[1]))||'proveedor';
+  const sub={contrato:'contrato',evaluaciones:'evaluación',docs:'documento',bitacora:'bitácora'}[seg[2]]||seg[2];
+  const accion=(valor===null||valor===undefined)?'eliminar':((prev===null||prev===undefined)?'crear':'editar');
+  return [{accion,detalle:'Ficha de '+pv+' — '+sub+(seg.length>3?' ('+accion+')':'')}];
  }
  if(rama==='rubrosProveedor'||rama==='configuracion'){
   const c=(rama==='configuracion')?audCampos(prev,valor):(JSON.stringify(prev)===JSON.stringify(valor)?[]:['lista de rubros']);

@@ -46,6 +46,35 @@
       "$codigo": {
         ".read": true
       }
+    },
+    "cbs4_votacion": {
+      ".read": false,
+      ".write": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      "$codigo": {
+        ".read": true
+      }
+    },
+    "cbs4_votos_reg": {
+      ".read": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      ".write": "auth != null && root.child('cbs4_usuarios').child(auth.uid).child('rol').exists() && root.child('cbs4_usuarios').child(auth.uid).child('activo').val() !== false && (root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Administrador' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Tesorera' || root.child('cbs4_usuarios').child(auth.uid).child('rol').val() === 'Presidenta')",
+      "$codigo": {
+        "$dep": {
+          ".write": "!data.exists() && newData.exists() && root.child('cbs4_votacion').child($codigo).child('e').val() === 'abierta' && (root.child('cbs4_votacion').child($codigo).child('c').val() === 0 || root.child('cbs4_votacion').child($codigo).child('c').val() > now) && root.child('cbs4_votacion').child($codigo).child('deps').child($dep).exists()",
+          ".validate": "newData.hasChildren(['n','o','ts'])",
+          "n": {
+            ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 80"
+          },
+          "o": {
+            ".validate": "newData.isString() && root.child('cbs4_votacion').child($codigo).child('op').child(newData.val()).exists()"
+          },
+          "ts": {
+            ".validate": "newData.val() == now"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
     }
   }
 }

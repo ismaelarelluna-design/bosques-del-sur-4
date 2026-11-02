@@ -4,6 +4,8 @@
    Datos (Firebase):
      cbs4/proveedores/<id>  {id,nombre,rubro,contacto,telefono,email,notas,valoracion,activo,creado}
      cbs4/rubrosProveedor   ['Rubro propio', ...]   (se suman a la lista base)
+   Ficha (proveedores_ficha.js, solo directiva): contrato, evaluaciones/<id>, docs/<id>, bitacora/<id> cuelgan del mismo registro
+   y guardarProveedor() los conserva al editar los datos basicos.
    Vinculo opcional: un gasto o una mantencion puede llevar `proveedorId`.
    Se guarda por registro (proveedores/<id>) para que dos administradores
    editando a la vez no se pisen entre si.
@@ -39,12 +41,14 @@ function vProveedores(){
   <div class="stat-card"><div class="stat-label"><span class="stat-icon">✅</span>Activos</div><div class="stat-value" data-plain style="color:var(--green)">${activos}</div></div>
   <div class="stat-card"><div class="stat-label"><span class="stat-icon">🏷️</span>Rubros</div><div class="stat-value" data-plain>${new Set(todos.map(p=>p.rubro).filter(Boolean)).size}</div></div>
  </div>
+ ${(typeof htmlProvAlertas==='function')?htmlProvAlertas():''}
  <div class="toolbar">
   <div class="buscador"><span class="buscador-ico">🔎</span><input class="fi buscador-input" placeholder="Buscar nombre, contacto o teléfono…" value="${esc(e.q)}" oninput="buscarProv(this.value)"/></div>
   <select class="fi" style="width:auto" onchange="setProv({rubro:this.value})"><option value="">Todos los rubros</option>${rubrosProveedor().map(r=>`<option value="${esc(r)}" ${e.rubro===r?'selected':''}>${esc(r)}</option>`).join('')}</select>
   <select class="fi" style="width:auto" onchange="setProv({estado:this.value})"><option value="activos" ${e.estado==='activos'?'selected':''}>Activos</option><option value="inactivos" ${e.estado==='inactivos'?'selected':''}>Inactivos</option><option value="todos" ${e.estado==='todos'?'selected':''}>Todos</option></select>
   <select class="fi" style="width:auto" onchange="setProv({orden:this.value})"><option value="nombre" ${e.orden==='nombre'?'selected':''}>Orden: nombre</option><option value="rubro" ${e.orden==='rubro'?'selected':''}>Orden: rubro</option><option value="gasto" ${e.orden==='gasto'?'selected':''}>Orden: mayor gasto</option><option value="reciente" ${e.orden==='reciente'?'selected':''}>Orden: más recientes</option></select>
   <div class="toolbar-sep"></div>
+  ${(typeof pfBotonGSP==='function')?pfBotonGSP():''}
   <button class="btn btn-success" onclick="openProveedor()">+ Nuevo proveedor</button>
  </div>
  <div id="prov-resumen" class="toolbar-resumen"></div>
@@ -73,14 +77,14 @@ function htmlProvLista(){
   return `<div class="comp-card prov-card ${p.activo===false?'inactivo':''}">
    <div class="comp-card-top"><div class="prov-av" style="background:hsl(${h} 55% 42%)">${esc(provIniciales(p.nombre))}</div>
     <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis">${esc(p.nombre)}</div>
-     <div style="margin-top:3px"><span class="chip chip-cat">${esc(p.rubro||'Sin rubro')}</span>${p.activo===false?' <span class="chip chip-mudo">Inactivo</span>':''}</div></div>
-    ${p.valoracion?`<span class="prov-stars" title="Valoración">${provStars(p.valoracion)}</span>`:''}</div>
+     <div style="margin-top:3px"><span class="chip chip-cat">${esc(p.rubro||'Sin rubro')}</span>${p.activo===false?' <span class="chip chip-mudo">Inactivo</span>':''}${(typeof pfChipContrato==='function'&&pfContrato(p))?' '+pfChipContrato(p):''}</div></div>
+    ${(typeof pfNotaCard==='function')?pfNotaCard(p):(p.valoracion?`<span class="prov-stars" title="Valoración">${provStars(p.valoracion)}</span>`:'')}</div>
    <div class="prov-datos">${p.contacto?`<div>👤 ${esc(p.contacto)}</div>`:''}${tel?`<div>📞 ${esc(tel)}</div>`:''}${p.email?`<div>✉️ ${esc(p.email)}</div>`:''}${p.notas?`<div class="prov-notas">${esc(p.notas)}</div>`:''}</div>
    <div class="prov-mov">${rs.n?`${rs.n} trabajo${rs.n>1?'s':''} · <strong>${fmt(rs.total)}</strong>${rs.ultimo?' · último '+esc(formatPeriodo(rs.ultimo)):''}`:'<span style="color:var(--text3)">Sin trabajos registrados</span>'}</div>
    <div class="prov-acc">
     ${tel?`<a class="btn btn-outline btn-sm" href="tel:${esc(tel.replace(/[^\d+]/g,''))}">📞 Llamar</a><button class="btn btn-outline btn-sm" onclick="provWhatsApp('${esc(p.id)}')">💬 WhatsApp</button>`:''}
     ${p.email?`<a class="btn btn-outline btn-sm" href="mailto:${esc(p.email)}">✉️ Correo</a>`:''}
-    <button class="btn btn-ghost btn-sm" onclick="verHistorialProv('${esc(p.id)}')">🧾 Historial</button>
+    <button class="btn btn-primary btn-sm" onclick="${typeof abrirFichaProv==='function'?'abrirFichaProv':'verHistorialProv'}('${esc(p.id)}')">📋 Ficha</button>
     <button class="btn btn-ghost btn-sm" onclick="openProveedor('${esc(p.id)}')">✏️ Editar</button></div></div>`;}).join('');
  let pag='';
  if(pags>1){const nums=[];for(let i=1;i<=pags;i++){if(i===1||i===pags||Math.abs(i-e.hoja)<=1)nums.push(i);else if(nums[nums.length-1]!=='…')nums.push('…');}
@@ -115,7 +119,7 @@ function guardarProveedor(id){
  const dup=proveedores().find(x=>String(x.id)!==String(id||'')&&String(x.nombre).toLowerCase()===nombre.toLowerCase());
  if(dup){showToast('Ya existe un proveedor con ese nombre','error');return;}
  const previo=id?proveedorPorId(id):null;
- const rec={id:id||db.ref('cbs4/proveedores').push().key,nombre,rubro,contacto:document.getElementById('pv-c').value.trim(),telefono:document.getElementById('pv-t').value.trim(),
+ const rec={...(previo||{}),id:id||db.ref('cbs4/proveedores').push().key,nombre,rubro,contacto:document.getElementById('pv-c').value.trim(),telefono:document.getElementById('pv-t').value.trim(),
   email:document.getElementById('pv-e').value.trim(),notas:document.getElementById('pv-no').value.trim(),valoracion:parseInt(document.getElementById('pv-v').value)||0,
   activo:document.getElementById('pv-a').checked,creado:previo?(previo.creado||Date.now()):Date.now()};
  if(!RUBROS_BASE.includes(rubro)&&!(appData.rubrosProveedor||[]).includes(rubro)){const l=(appData.rubrosProveedor||[]).concat([rubro]);appData.rubrosProveedor=l;savePath('rubrosProveedor',l);}

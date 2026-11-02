@@ -1,5 +1,5 @@
 // Service Worker — Condominio Bosques del Sur 4
-const CACHE_NAME = 'cbs4-v22';
+const CACHE_NAME = 'cbs4-v23';
 const ASSETS = [
   '/',
   '/index.html',
@@ -24,7 +24,7 @@ const ASSETS = [
   '/informes.js',
   '/convocatorias.js',
   '/estado.js',
-  '/exenciones.js','/excel.js','/comparativo.js',
+  '/exenciones.js','/excel.js','/comparativo.js','/proveedores_ficha.js','/votaciones.js','/votar.js',
   '/bosques_del_sur_4.png',
   '/icon-192-v2.png',
   '/icon-512-v2.png',
