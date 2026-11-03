@@ -92,12 +92,13 @@ function votarHtmlFormulario(){
  <div class="vt-sec">1 · Tu departamento</div>
  <button type="button" class="vt-select ${sel?'sel':''}" onclick="votarToggleLista()" aria-haspopup="listbox" aria-expanded="${VT.lista}"><span>${sel?'Departamento '+esc(sel.n):'Busca y selecciona tu departamento'}</span><i>▾</i></button>
  ${VT.lista?`<div class="vt-lista"><input class="vt-input" id="vt-q" type="search" inputmode="numeric" autocomplete="off" placeholder="Buscar número…" value="${esc(VT.q)}" oninput="votarFiltrar(this.value)"/><div id="vt-items" role="listbox">${votarHtmlItems()}</div></div>`:''}
- <div class="vt-sec">2 · Tu nombre</div>
- <input class="vt-input" id="vt-nombre" autocomplete="name" maxlength="80" placeholder="Nombre y apellido" value="${esc(VT.nombre)}" oninput="votarNombre(this.value)"/>
- <div class="vt-hint">Escribe tu nombre completo. Quedará registrado junto a tu voto y la directiva podrá verlo.</div>
+ <div class="vt-sec">2 · Tu nombre y apellido</div>
+ <input class="vt-input" id="vt-nombre" autocomplete="name" maxlength="80" placeholder="Ej: María González" value="${esc(VT.nombre)}" oninput="votarNombre(this.value)"/>
+ <div class="vt-hint">Escribe tu nombre y tu apellido. Quedarán registrados junto a tu voto y la directiva podrá verlos.</div>
  <div class="vt-sec">3 · Tu voto</div>
  <div role="radiogroup" id="vt-ops">${ops.map(o=>`<button type="button" role="radio" aria-checked="${VT.op===o.id}" class="vt-opt ${VT.op===o.id?'on':''}" onclick="votarElegirOp('${esc(o.id)}')"><span class="vt-radio"></span><span>${esc(o.t)}</span></button>`).join('')}</div>
  ${VT.err?`<div class="vt-err" role="alert">${esc(VT.err)}</div>`:''}
+ <div class="vt-falta" id="vt-falta" style="display:${votarFaltante()?'block':'none'}">${esc(votarFaltante())}</div>
  <button type="button" class="vt-btn" id="vt-go" onclick="votarRevisar()" ${votarListo()?'':'disabled'}>Revisar mi voto</button></div>`;
 }
 function votarHtmlItems(){
@@ -122,7 +123,19 @@ function votarHtmlGracias(){
 }
 /* --------------------------------------------------------- interacción */
 function votarListo(){return !!(VT.dep&&VT.op&&VT_NOMBRE_RE.test(VT.nombre.trim())&&VT.nombre.trim().split(/\s+/).filter(w=>w.length>=2).length>=2);}
-function votarActualizarBtn(){const b=document.getElementById('vt-go');if(b)b.disabled=!votarListo();}
+/* Qué falta para poder votar (se muestra sobre el botón para que nunca parezca roto). */
+function votarFaltante(){
+ const f=[];
+ if(!VT.dep)f.push('tu departamento');
+ const n=VT.nombre.trim();
+ if(!(VT_NOMBRE_RE.test(n)&&n.split(/\s+/).filter(w=>w.length>=2).length>=2))f.push('tu nombre y apellido');
+ if(!VT.op)f.push('tu voto');
+ return f.length?'Falta: '+f.join(', ').replace(/, ([^,]*)$/,' y $1')+'.':'';
+}
+function votarActualizarBtn(){
+ const b=document.getElementById('vt-go');if(b)b.disabled=!votarListo();
+ const m=document.getElementById('vt-falta');if(m){const t=votarFaltante();m.textContent=t;m.style.display=t?'block':'none';}
+}
 function votarToggleLista(){VT.lista=!VT.lista;VT.q='';votarRender();if(VT.lista){const i=document.getElementById('vt-q');if(i)i.focus();}}
 function votarFiltrar(q){VT.q=q;const el=document.getElementById('vt-items');if(el)el.innerHTML=votarHtmlItems();}
 function votarElegirDepto(id){VT.dep=id;VT.lista=false;VT.err='';votarRender();}

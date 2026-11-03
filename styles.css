@@ -850,3 +850,5 @@ html{scroll-behavior:smooth;}
 
 #votar-screen[data-anim="none"] .vt-brand,#votar-screen[data-anim="none"] .vt-logo,#votar-screen[data-anim="none"] .vt-card,#votar-screen[data-anim="none"] .vt-modal,#votar-screen[data-anim="none"] .vt-lista{animation:none}
 #votar-screen[data-anim="modal"] .vt-brand,#votar-screen[data-anim="modal"] .vt-logo,#votar-screen[data-anim="modal"] .vt-card:not(.vt-conf){animation:none}
+
+.vt-falta{margin-top:14px;font-size:13px;line-height:1.5;color:#FDE68A;background:rgba(245,158,11,.14);border:1px solid rgba(253,230,138,.35);border-radius:10px;padding:9px 12px}
